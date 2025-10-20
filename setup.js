@@ -643,7 +643,7 @@ function crearCertificacionesEjemplo() {
     solicitante: 'Guadalupe Susana Callupe Pacheco',
     cargoSolicitante: 'Coordinadora de Logística',
     emailSolicitante: 'guadalupe.callupe@caritaslima.org',
-    finalidad: 'Se requiere complementar los kits de ollas con productos alimentarios básicos para completar la canasta alimentaria destinada a familias en situación de vulnerabilidad. Esta adquisición permitirá brindar una asistencia alimentaria más integral a los beneficiarios de nuestros programas sociales.',
+    finalidad: 'Complementar con productos alimentarios la conformación de los kits de ollas para atender a familias en situación de vulnerabilidad, garantizando una asistencia oportuna y completa.',
     items: [
       {
         descripcion: 'Adquisición de productos adicionales para completar los kits de ollas (AZÚCAR CARTAVIO RUBIA GRANEL y ACEITE VEGA BOTELLA)',

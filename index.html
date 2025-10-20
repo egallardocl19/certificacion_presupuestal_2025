@@ -350,6 +350,12 @@
             border-left-color: #17a2b8;
         }
 
+        .alert-warning {
+            background: #fff3cd;
+            color: #856404;
+            border-left-color: #ffc107;
+        }
+
         .loading {
             display: none;
             text-align: center;
@@ -1289,53 +1295,51 @@
         }
 
         function obtenerFinalidadAutomatica() {
-            const descripcion = document.getElementById('descripcion')?.value || '';
-            const oficina = document.getElementById('oficina')?.value || '';
-            const iniciativa = document.getElementById('iniciativa')?.value || '';
-            const tipo = document.getElementById('tipo')?.value || '';
-            const fuente = document.getElementById('fuente')?.value || '';
-
-            let finalidad = 'Atender oportunamente las necesidades operativas de Cáritas Lima.';
+            const descripcion = (document.getElementById('descripcion')?.value || '').trim();
+            if (!descripcion) {
+                return '';
+            }
 
             const desc = descripcion.toLowerCase();
+            let finalidad = 'Atender oportunamente las necesidades operativas de Cáritas Lima';
 
-            if (desc.includes('adquisic') || desc.includes('compra') || desc.includes('productos') || desc.includes('materiales')) {
-                if (desc.includes('alimento') || desc.includes('kit') || desc.includes('ollas') || desc.includes('víveres')) {
-                    finalidad = 'Complementar con recursos adicionales la conformación de kits alimentarios para la atención de familias vulnerables.';
-                } else if (desc.includes('oficina') || desc.includes('administrativ') || desc.includes('equipos')) {
-                    finalidad = 'Fortalecer la capacidad operativa administrativa de la institución mediante la provisión de bienes esenciales.';
+            if (desc.includes('adquisic') || desc.includes('compra') || desc.includes('producto') || desc.includes('material')) {
+                if (desc.includes('alimento') || desc.includes('kit') || desc.includes('olla') || desc.includes('víveres')) {
+                    finalidad = 'Complementar con recursos adicionales la conformación de kits alimentarios para la atención de familias vulnerables';
+                } else if (desc.includes('oficina') || desc.includes('administrativ') || desc.includes('equipo') || desc.includes('mueble')) {
+                    finalidad = 'Fortalecer la capacidad operativa administrativa de la institución mediante la provisión de bienes esenciales';
                 } else {
-                    finalidad = 'Complementar las operaciones institucionales con la adquisición de insumos y materiales necesarios.';
+                    finalidad = 'Complementar las operaciones institucionales con la adquisición de insumos y materiales necesarios';
                 }
-            } else if (desc.includes('servicio') || desc.includes('consultorí') || desc.includes('capacitación')) {
+            } else if (desc.includes('servicio') || desc.includes('consultor') || desc.includes('capacitación') || desc.includes('formación')) {
                 if (desc.includes('capacitación') || desc.includes('formación')) {
-                    finalidad = 'Fortalecer las capacidades del personal para mejorar la atención a beneficiarios y aliados estratégicos.';
+                    finalidad = 'Fortalecer las capacidades del personal para mejorar la atención a beneficiarios y aliados estratégicos';
                 } else {
-                    finalidad = 'Mejorar la calidad de los servicios brindados a la comunidad a través de la contratación especializada correspondiente.';
+                    finalidad = 'Mejorar la calidad de los servicios brindados a la comunidad a través de la contratación especializada correspondiente';
                 }
             }
 
             const complementos = [];
-            const iniciativaNombre = obtenerNombreCatalogo('iniciativas', iniciativa);
-            const oficinaNombre = obtenerNombreCatalogo('oficinas', oficina);
-            const tipoNombre = obtenerNombreCatalogo('tipos', tipo);
-            const fuenteNombre = obtenerNombreCatalogo('fuentes', fuente);
+            const iniciativaNombre = obtenerNombreCatalogo('iniciativas', document.getElementById('iniciativa')?.value);
+            const oficinaNombre = obtenerNombreCatalogo('oficinas', document.getElementById('oficina')?.value);
+            const tipoNombre = obtenerNombreCatalogo('tipos', document.getElementById('tipo')?.value);
+            const fuenteNombre = obtenerNombreCatalogo('fuentes', document.getElementById('fuente')?.value);
 
+            if (tipoNombre) {
+                complementos.push(`mediante el gasto tipificado como ${tipoNombre.toLowerCase()}`);
+            }
             if (iniciativaNombre) {
-                complementos.push(`en el marco de la iniciativa "${iniciativaNombre}"`);
+                complementos.push(`en el marco de la iniciativa ${iniciativaNombre}`);
             }
             if (oficinaNombre) {
-                complementos.push(`desde la ${oficinaNombre}`);
-            }
-            if (tipoNombre) {
-                complementos.push(`a través del tipo ${tipoNombre.toLowerCase()}`);
+                complementos.push(`a cargo de la ${oficinaNombre}`);
             }
             if (fuenteNombre) {
                 complementos.push(`financiado con recursos de ${fuenteNombre}`);
             }
 
-            if (complementos.length > 0) {
-                finalidad += ' ' + complementos.join(', ') + '.';
+            if (complementos.length) {
+                finalidad += '. ' + complementos.join(', ') + '.';
             } else if (!finalidad.endsWith('.')) {
                 finalidad += '.';
             }
@@ -1350,7 +1354,13 @@
             const finalidadGenerada = obtenerFinalidadAutomatica();
             const valorActual = campoFinalidad.value.trim();
 
-            if (!finalidadGenerada) return;
+            if (!finalidadGenerada) {
+                if (forzar || !finalidadEditadaManual) {
+                    campoFinalidad.value = '';
+                    finalidadEditadaManual = false;
+                }
+                return;
+            }
 
             if (forzar || !valorActual || !finalidadEditadaManual) {
                 campoFinalidad.value = finalidadGenerada;
@@ -1642,12 +1652,18 @@
                     console.error('Error convirtiendo a letras:', error);
                 })
                 .convertirNumeroALetras(total);
+
+            if (!finalidadEditadaManual) {
+                actualizarFinalidadAutomatica();
+            }
         }
 
         // Generar finalidad con IA
         function generarFinalidadConIA() {
+            const descripcion = document.getElementById('descripcion').value;
+            const campoFinalidad = document.getElementById('finalidad');
             const datos = {
-                descripcion: document.getElementById('descripcion').value,
+                descripcion,
                 iniciativa: obtenerNombreCatalogo('iniciativas', document.getElementById('iniciativa').value),
                 tipo: obtenerNombreCatalogo('tipos', document.getElementById('tipo').value),
                 fuente: obtenerNombreCatalogo('fuentes', document.getElementById('fuente').value),
@@ -1655,7 +1671,7 @@
                 montoEstimado: document.getElementById('totalMonto').textContent.replace(',', '')
             };
 
-            if (!datos.descripcion) {
+            if (!descripcion) {
                 mostrarAlerta('Por favor, complete la descripción antes de generar la finalidad', 'error');
                 return;
             }
@@ -1665,20 +1681,26 @@
             google.script.run
                 .withSuccessHandler(resultado => {
                     mostrarLoading(false);
-                    if (resultado.success) {
-                        document.getElementById('finalidad').value = resultado.finalidad;
+                    if (resultado.success && resultado.finalidad) {
+                        const textoFinalidad = resultado.finalidad.trim().endsWith('.') ? resultado.finalidad.trim() : `${resultado.finalidad.trim()}.`;
+                        campoFinalidad.value = textoFinalidad;
                         finalidadEditadaManual = true;
                         mostrarAlerta('Finalidad generada exitosamente', 'success');
                     } else {
-                        mostrarAlerta('Error al generar finalidad: ' + resultado.error, 'error');
-                        document.getElementById('finalidad').value = resultado.finalidad || 'Error al generar finalidad automática. Por favor, elabore una finalidad manual.';
+                        const fallback = (resultado.finalidad || obtenerFinalidadAutomatica() || '').trim();
+                        campoFinalidad.value = fallback;
                         finalidadEditadaManual = true;
+                        mostrarAlerta('No se pudo generar la finalidad automáticamente. Se sugirió un texto base.', 'warning');
                     }
                 })
                 .withFailureHandler(error => {
                     mostrarLoading(false);
-                    mostrarAlerta('Error de conexión al generar la finalidad: ' + error.message, 'error');
+                    const fallback = (obtenerFinalidadAutomatica() || '').trim();
+                    if (fallback) {
+                        campoFinalidad.value = fallback;
+                    }
                     finalidadEditadaManual = true;
+                    mostrarAlerta('Error de conexión al generar la finalidad: ' + error.message, 'error');
                 })
                 .generarFinalidadConIA(datos);
         }
@@ -1780,7 +1802,7 @@
                             })
                             .catch(error => {
                                 console.error('No se pudieron recargar las certificaciones:', error);
-                                mostrarAlerta('No se pudieron recargar las certificaciones recién creadas.', 'error');
+                                mostrarAlerta('La certificación se creó, pero no fue posible refrescar la lista automáticamente.', 'warning');
                             })
                             .finally(() => {
                                 cambiarTab('certificaciones');
