@@ -706,13 +706,13 @@
                     </div>
                 </div>
 
-                <!-- Justificación con AI -->
+                <!-- Finalidad con AI -->
                 <div class="config-section">
-                    <h3 style="color: #019952;">📄 Justificación</h3>
+                    <h3 style="color: #019952;">📄 Finalidad</h3>
                     <div class="form-group" style="position: relative;">
-                        <label for="justificacion">Justificación</label>
-                        <textarea id="justificacion" name="justificacion" placeholder="Justificación técnica del gasto..." rows="5"></textarea>
-                        <button type="button" class="ai-button" onclick="generarJustificacionConIA()">🤖 Generar con IA</button>
+                        <label for="finalidad">Finalidad</label>
+                        <textarea id="finalidad" name="finalidad" placeholder="Finalidad o propósito específico del gasto..." rows="5"></textarea>
+                        <button type="button" class="ai-button" onclick="generarFinalidadConIA()">🤖 Generar con IA</button>
                     </div>
                 </div>
 
@@ -1582,8 +1582,8 @@
                 .convertirNumeroALetras(total);
         }
 
-        // Generar justificación con IA
-        function generarJustificacionConIA() {
+        // Generar finalidad con IA
+        function generarFinalidadConIA() {
             const datos = {
                 descripcion: document.getElementById('descripcion').value,
                 iniciativa: obtenerNombreCatalogo('iniciativas', document.getElementById('iniciativa').value),
@@ -1594,28 +1594,28 @@
             };
 
             if (!datos.descripcion) {
-                mostrarAlerta('Por favor, complete la descripción antes de generar la justificación', 'error');
+                mostrarAlerta('Por favor, complete la descripción antes de generar la finalidad', 'error');
                 return;
             }
 
-            mostrarLoading(true, 'Generando justificación con IA...');
-            
+            mostrarLoading(true, 'Generando finalidad con IA...');
+
             google.script.run
                 .withSuccessHandler(resultado => {
                     mostrarLoading(false);
                     if (resultado.success) {
-                        document.getElementById('justificacion').value = resultado.justificacion;
-                        mostrarAlerta('Justificación generada exitosamente', 'success');
+                        document.getElementById('finalidad').value = resultado.finalidad;
+                        mostrarAlerta('Finalidad generada exitosamente', 'success');
                     } else {
-                        mostrarAlerta('Error al generar justificación: ' + resultado.error, 'error');
-                        document.getElementById('justificacion').value = resultado.justificacion || 'Error al generar justificación automática. Por favor, elabore una justificación manual.';
+                        mostrarAlerta('Error al generar finalidad: ' + resultado.error, 'error');
+                        document.getElementById('finalidad').value = resultado.finalidad || 'Error al generar finalidad automática. Por favor, elabore una finalidad manual.';
                     }
                 })
                 .withFailureHandler(error => {
                     mostrarLoading(false);
-                    mostrarAlerta('Error de conexión al generar justificación: ' + error.message, 'error');
+                    mostrarAlerta('Error de conexión al generar la finalidad: ' + error.message, 'error');
                 })
-                .generarJustificacionIA(datos);
+                .generarFinalidadConIA(datos);
         }
 
         // Guardar nueva certificación
@@ -1631,7 +1631,7 @@
                 iniciativa: formData.get('iniciativa'),
                 tipo: formData.get('tipo'),
                 fuente: formData.get('fuente'),
-                justificacion: formData.get('justificacion'),
+                finalidad: formData.get('finalidad'),
                 items: [],
                 firmantes: []
             };

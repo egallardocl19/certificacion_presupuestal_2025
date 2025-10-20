@@ -192,7 +192,7 @@ function crearHojaCertificaciones(ss) {
     'Plantilla', // Y
     'URL Documento', // Z
     'URL PDF', // AA
-    'Justificación' // AB
+    'Finalidad Detallada' // AB
   ];
   
   sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
@@ -643,7 +643,7 @@ function crearCertificacionesEjemplo() {
     solicitante: 'Guadalupe Susana Callupe Pacheco',
     cargoSolicitante: 'Coordinadora de Logística',
     emailSolicitante: 'guadalupe.callupe@caritaslima.org',
-    justificacion: 'Se requiere complementar los kits de ollas con productos alimentarios básicos para completar la canasta alimentaria destinada a familias en situación de vulnerabilidad. Esta adquisición permitirá brindar una asistencia alimentaria más integral a los beneficiarios de nuestros programas sociales.',
+    finalidad: 'Se requiere complementar los kits de ollas con productos alimentarios básicos para completar la canasta alimentaria destinada a familias en situación de vulnerabilidad. Esta adquisición permitirá brindar una asistencia alimentaria más integral a los beneficiarios de nuestros programas sociales.',
     items: [
       {
         descripcion: 'Adquisición de productos adicionales para completar los kits de ollas (AZÚCAR CARTAVIO RUBIA GRANEL y ACEITE VEGA BOTELLA)',
