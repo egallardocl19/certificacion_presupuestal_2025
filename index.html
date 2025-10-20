@@ -41,9 +41,10 @@
         }
 
         .logo {
-            height: 70px;
-            max-width: 140px;
+            max-height: 64px;
+            max-width: 180px;
             width: auto;
+            height: auto;
             border-radius: 10px;
             object-fit: contain;
         }
@@ -519,7 +520,7 @@
         <!-- Loading -->
         <div id="loading" class="loading">
             <div class="spinner"></div>
-            <div>Cargando...</div>
+            <div class="loading-message">Cargando...</div>
         </div>
 
         <!-- Navigation Tabs -->
@@ -955,7 +956,7 @@
                 cargarCatalogos(),
                 cargarCertificaciones(),
                 cargarEstadisticasDashboard(),
-                cargarConfiguracion()
+                cargarConfiguracionInicial()
             ]).then(() => {
                 mostrarAlerta('Sistema cargado correctamente', 'success');
                 console.log('Sistema cargado exitosamente');
@@ -970,7 +971,7 @@
         }
 
         // Cargar configuración
-        function cargarConfiguracion() {
+        function cargarConfiguracionInicial() {
             return new Promise((resolve, reject) => {
                 google.script.run
                     .withSuccessHandler(data => {
@@ -1262,7 +1263,7 @@
             const selectedTab = document.querySelector(`[data-config="${configId}"]`);
             if (selectedTab) {
                 selectedTab.classList.add('active');
-                cargarConfiguracion(configId);
+                renderConfiguracion(configId);
             }
         }
 
@@ -1686,7 +1687,8 @@
         function guardarNuevaCertificacion() {
             const form = document.getElementById('nuevaCertificacionForm');
             const formData = new FormData(form);
-            
+            const submitButton = form.querySelector('button[type="submit"]');
+
             // Recolectar datos del formulario
             const datos = {
                 fecha: formData.get('fechaCertificacion'),
@@ -1695,13 +1697,13 @@
                 iniciativa: formData.get('iniciativa'),
                 tipo: formData.get('tipo'),
                 fuente: formData.get('fuente'),
-                finalidad: (formData.get('finalidad') || '').trim(),
                 items: [],
                 firmantes: []
             };
 
             // Obtener datos del solicitante seleccionado
             const solicitanteId = formData.get('solicitanteId');
+            datos.solicitanteId = solicitanteId;
             if (solicitanteId) {
                 const solicitante = catalogos.solicitantes.find(s => s.id === solicitanteId);
                 if (solicitante) {
@@ -1748,25 +1750,51 @@
                 return;
             }
 
+            const finalidadManual = (formData.get('finalidad') || '').trim();
+            datos.finalidad = (finalidadManual || obtenerFinalidadAutomatica() || '').trim();
+
+            if (submitButton) {
+                submitButton.dataset.originalText = submitButton.dataset.originalText || submitButton.textContent;
+                submitButton.disabled = true;
+                submitButton.textContent = '⏳ Creando...';
+            }
+
             mostrarAlerta('Creando certificación, por favor espere...', 'info');
             mostrarLoading(true, 'Creando certificación...');
 
             google.script.run
                 .withSuccessHandler(resultado => {
                     mostrarLoading(false);
+                    if (submitButton) {
+                        submitButton.disabled = false;
+                        submitButton.textContent = submitButton.dataset.originalText || '💾 Crear Certificación';
+                    }
                     if (resultado.success) {
                         mostrarAlerta(`Certificación creada exitosamente. Código: ${resultado.codigo}`, 'success');
                         limpiarFormulario();
-                        cargarCertificaciones().then(() => {
-                            cargarTablaCertificaciones();
-                            cargarEstadisticasDashboard();
-                        });
+                        cargarCertificaciones()
+                            .then(() => {
+                                cargarTablaCertificaciones();
+                                cargarTablaCertificacionesRecientes();
+                                cargarEstadisticasDashboard();
+                            })
+                            .catch(error => {
+                                console.error('No se pudieron recargar las certificaciones:', error);
+                                mostrarAlerta('No se pudieron recargar las certificaciones recién creadas.', 'error');
+                            })
+                            .finally(() => {
+                                cambiarTab('certificaciones');
+                            });
                     } else {
                         mostrarAlerta('Error al crear la certificación: ' + resultado.error, 'error');
                     }
                 })
                 .withFailureHandler(error => {
                     mostrarLoading(false);
+                    if (submitButton) {
+                        submitButton.disabled = false;
+                        submitButton.textContent = submitButton.dataset.originalText || '💾 Crear Certificación';
+                    }
                     mostrarAlerta('Error de conexión: ' + error.message, 'error');
                 })
                 .crearCertificacion(datos);
@@ -1823,14 +1851,20 @@
         // Funciones auxiliares
         function mostrarLoading(show, mensaje = 'Cargando...') {
             const loading = document.getElementById('loading');
+            if (!loading) return;
+
+            const mensajeElemento = loading.querySelector('.loading-message');
+            if (mensajeElemento) {
+                mensajeElemento.textContent = mensaje || 'Cargando...';
+            }
+
             if (show) {
                 loading.classList.add('show');
-                if (mensaje !== 'Cargando...') {
-                    loading.querySelector('div:last-child').textContent = mensaje;
-                }
             } else {
                 loading.classList.remove('show');
-                loading.querySelector('div:last-child').textContent = 'Cargando...';
+                if (mensajeElemento) {
+                    mensajeElemento.textContent = 'Cargando...';
+                }
             }
         }
 
@@ -1887,7 +1921,7 @@
         }
 
         // Funciones de configuración completas
-function cargarConfiguracion(tipo) {
+function renderConfiguracion(tipo) {
     const content = document.getElementById('configContent');
     
     switch(tipo) {
@@ -2168,7 +2202,7 @@ function guardarSolicitante() {
                 cancelarFormularioSolicitante();
                 // Recargar catálogos
                 cargarCatalogos().then(() => {
-                    cargarConfiguracion('solicitantes');
+                    renderConfiguracion('solicitantes');
                 });
             } else {
                 mostrarAlerta('Error al guardar solicitante: ' + resultado.error, 'error');
@@ -2199,7 +2233,7 @@ function eliminarSolicitante(id) {
                 mostrarAlerta('Solicitante eliminado exitosamente', 'success');
                 // Recargar catálogos
                 cargarCatalogos().then(() => {
-                    cargarConfiguracion('solicitantes');
+                    renderConfiguracion('solicitantes');
                 });
             } else {
                 mostrarAlerta('Error al eliminar solicitante: ' + resultado.error, 'error');
@@ -2270,7 +2304,7 @@ function guardarFirmante() {
                 cancelarFormularioFirmante();
                 // Recargar catálogos
                 cargarCatalogos().then(() => {
-                    cargarConfiguracion('firmantes');
+                    renderConfiguracion('firmantes');
                 });
             } else {
                 mostrarAlerta('Error al guardar firmante: ' + resultado.error, 'error');
@@ -2301,7 +2335,7 @@ function eliminarFirmante(id) {
                 mostrarAlerta('Firmante eliminado exitosamente', 'success');
                 // Recargar catálogos
                 cargarCatalogos().then(() => {
-                    cargarConfiguracion('firmantes');
+                    renderConfiguracion('firmantes');
                 });
             } else {
                 mostrarAlerta('Error al eliminar firmante: ' + resultado.error, 'error');
@@ -2330,7 +2364,9 @@ function guardarConfigGeneral() {
             if (resultado.success) {
                 mostrarAlerta('Configuración guardada exitosamente', 'success');
                 // Recargar configuración
-                cargarConfiguracion();
+                cargarConfiguracionInicial().then(() => {
+                    renderConfiguracion('general');
+                });
             } else {
                 mostrarAlerta('Error al guardar configuración: ' + resultado.error, 'error');
             }
