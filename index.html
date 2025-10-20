@@ -41,9 +41,11 @@
         }
 
         .logo {
-            width: 80px;
-            height: 80px;
+            height: 70px;
+            max-width: 140px;
+            width: auto;
             border-radius: 10px;
+            object-fit: contain;
         }
 
         .header-text h1 {
@@ -480,16 +482,6 @@
             border-top: 1px solid #eee;
         }
 
-        .finalidad-preview {
-            background: rgba(1, 153, 82, 0.1);
-            border: 1px solid rgba(1, 153, 82, 0.2);
-            padding: 10px 15px;
-            border-radius: 5px;
-            margin-top: 10px;
-            font-style: italic;
-            color: #019952;
-        }
-
         .info-badge {
             display: inline-block;
             background: rgba(23, 162, 184, 0.1);
@@ -499,6 +491,12 @@
             font-size: 12px;
             font-weight: 500;
             margin-left: 10px;
+        }
+
+        .info-text {
+            font-size: 13px;
+            color: #4a4a4a;
+            margin-bottom: 12px;
         }
     </style>
 </head>
@@ -654,12 +652,7 @@
 
                     <div class="form-group">
                         <label for="descripcion">📝 Descripción *</label>
-                        <textarea id="descripcion" name="descripcion" placeholder="Descripción detallada de la certificación (ej: Adquisición de productos adicionales para completar los kits de ollas...)" required onchange="generarFinalizadPreview()"></textarea>
-                    </div>
-                    
-                    <!-- Vista previa de finalidad automática -->
-                    <div id="finalidadPreview" class="finalidad-preview" style="display: none;">
-                        <strong>Finalidad automática:</strong> <span id="finalidadTexto"></span>
+                        <textarea id="descripcion" name="descripcion" placeholder="Descripción detallada de la certificación (ej: Adquisición de productos adicionales para completar los kits de ollas...)" required></textarea>
                     </div>
 
                     <div class="form-grid">
@@ -706,16 +699,6 @@
                     </div>
                 </div>
 
-                <!-- Justificación con AI -->
-                <div class="config-section">
-                    <h3 style="color: #019952;">📄 Justificación</h3>
-                    <div class="form-group" style="position: relative;">
-                        <label for="justificacion">Justificación</label>
-                        <textarea id="justificacion" name="justificacion" placeholder="Justificación técnica del gasto..." rows="5"></textarea>
-                        <button type="button" class="ai-button" onclick="generarJustificacionConIA()">🤖 Generar con IA</button>
-                    </div>
-                </div>
-
                 <!-- Ítems -->
                 <div class="config-section">
                     <h3 style="color: #019952;">🛒 Ítems de la Certificación</h3>
@@ -742,6 +725,17 @@
                     </div>
                     <div id="firmantesContainer">
                         <!-- Los firmantes se cargarán automáticamente -->
+                    </div>
+                </div>
+
+                <!-- Finalidad -->
+                <div class="config-section">
+                    <h3 style="color: #019952;">📄 Finalidad generada automáticamente</h3>
+                    <p class="info-text">La finalidad se actualiza de forma automática con base en la información ingresada, pero puede editarla si necesita añadir más detalles.</p>
+                    <div class="form-group" style="position: relative;">
+                        <label for="finalidad">Finalidad</label>
+                        <textarea id="finalidad" name="finalidad" placeholder="Finalidad o propósito específico del gasto..." rows="5"></textarea>
+                        <button type="button" class="ai-button" onclick="generarFinalidadConIA()">🤖 Generar con IA</button>
                     </div>
                 </div>
 
@@ -878,6 +872,7 @@
         let contadorItems = 0;
         let contadorFirmantes = 0;
         let contadorMultiples = 0;
+        let finalidadEditadaManual = false;
 
         // Inicialización
         document.addEventListener('DOMContentLoaded', function() {
@@ -908,12 +903,35 @@
                 guardarNuevaCertificacion();
             });
 
+            const campoFinalidad = document.getElementById('finalidad');
+            if (campoFinalidad) {
+                campoFinalidad.addEventListener('input', () => {
+                    finalidadEditadaManual = campoFinalidad.value.trim().length > 0;
+                    if (!finalidadEditadaManual) {
+                        actualizarFinalidadAutomatica(true);
+                    }
+                });
+            }
+
+            ['descripcion', 'iniciativa', 'tipo', 'fuente', 'oficina'].forEach(id => {
+                const elemento = document.getElementById(id);
+                if (!elemento) return;
+                const evento = elemento.tagName === 'TEXTAREA' ? 'input' : 'change';
+                elemento.addEventListener(evento, () => {
+                    if (!finalidadEditadaManual || !document.getElementById('finalidad').value.trim()) {
+                        actualizarFinalidadAutomatica();
+                    }
+                });
+            });
+
             // Eventos de filtros
             document.getElementById('searchText').addEventListener('input', debounce(aplicarFiltros, 300));
-            
+
             // Establecer fecha actual por defecto
             document.getElementById('fechaCertificacion').value = new Date().toISOString().split('T')[0];
             document.getElementById('baseFechaCertificacion').value = new Date().toISOString().split('T')[0];
+
+            actualizarFinalidadAutomatica(true);
         }
 
         // Función debounce para optimizar búsquedas
@@ -932,20 +950,22 @@
         // Inicializar aplicación
         function inicializarApp() {
             mostrarLoading(true, 'Cargando sistema...');
-            
+
             Promise.all([
                 cargarCatalogos(),
                 cargarCertificaciones(),
                 cargarEstadisticasDashboard(),
                 cargarConfiguracion()
             ]).then(() => {
-                mostrarLoading(false);
                 mostrarAlerta('Sistema cargado correctamente', 'success');
                 console.log('Sistema cargado exitosamente');
             }).catch(error => {
-                mostrarLoading(false);
                 mostrarAlerta('Error al cargar el sistema: ' + error.message, 'error');
                 console.error('Error cargando sistema:', error);
+            }).finally(() => {
+                cargarTablaCertificaciones();
+                cargarTablaCertificacionesRecientes();
+                mostrarLoading(false);
             });
         }
 
@@ -1007,11 +1027,14 @@
                     .withSuccessHandler(data => {
                         certificaciones = data || [];
                         console.log('Certificaciones cargadas:', certificaciones.length);
+                        cargarTablaCertificaciones();
+                        cargarTablaCertificacionesRecientes();
                         resolve();
                     })
                     .withFailureHandler(error => {
                         console.error('Error cargando certificaciones:', error);
                         certificaciones = [];
+                        cargarTablaCertificaciones();
                         reject(error);
                     })
                     .obtenerCertificaciones();
@@ -1185,6 +1208,10 @@
                 if (valorActual) select.value = valorActual;
             });
 
+            if (!finalidadEditadaManual || !document.getElementById('finalidad').value.trim()) {
+                actualizarFinalidadAutomatica(true);
+            }
+
             console.log('Selectores llenados con catálogos');
         }
 
@@ -1260,40 +1287,74 @@
             }
         }
 
-        // Generar vista previa de finalidad automática
-        function generarFinalizadPreview() {
-            const descripcion = document.getElementById('descripcion').value;
-            const preview = document.getElementById('finalidadPreview');
-            const texto = document.getElementById('finalidadTexto');
+        function obtenerFinalidadAutomatica() {
+            const descripcion = document.getElementById('descripcion')?.value || '';
+            const oficina = document.getElementById('oficina')?.value || '';
+            const iniciativa = document.getElementById('iniciativa')?.value || '';
+            const tipo = document.getElementById('tipo')?.value || '';
+            const fuente = document.getElementById('fuente')?.value || '';
 
-            if (!descripcion) {
-                preview.style.display = 'none';
-                return;
-            }
+            let finalidad = 'Atender oportunamente las necesidades operativas de Cáritas Lima.';
 
-            // Simular la lógica de finalidad automática del backend
-            let finalidad = 'Complementar las necesidades operativas para el cumplimiento de la misión institucional.';
-            
             const desc = descripcion.toLowerCase();
-            
+
             if (desc.includes('adquisic') || desc.includes('compra') || desc.includes('productos') || desc.includes('materiales')) {
                 if (desc.includes('alimento') || desc.includes('kit') || desc.includes('ollas') || desc.includes('víveres')) {
-                    finalidad = 'Complementar con productos adicionales la conformación de los kits de alimentos.';
+                    finalidad = 'Complementar con recursos adicionales la conformación de kits alimentarios para la atención de familias vulnerables.';
                 } else if (desc.includes('oficina') || desc.includes('administrativ') || desc.includes('equipos')) {
-                    finalidad = 'Fortalecer la capacidad operativa administrativa de la institución.';
+                    finalidad = 'Fortalecer la capacidad operativa administrativa de la institución mediante la provisión de bienes esenciales.';
                 } else {
-                    finalidad = 'Complementar con productos adicionales las operaciones institucionales.';
+                    finalidad = 'Complementar las operaciones institucionales con la adquisición de insumos y materiales necesarios.';
                 }
             } else if (desc.includes('servicio') || desc.includes('consultorí') || desc.includes('capacitación')) {
                 if (desc.includes('capacitación') || desc.includes('formación')) {
-                    finalidad = 'Fortalecer las capacidades del personal para mejorar la atención a beneficiarios.';
+                    finalidad = 'Fortalecer las capacidades del personal para mejorar la atención a beneficiarios y aliados estratégicos.';
                 } else {
-                    finalidad = 'Mejorar la calidad de servicios brindados a la comunidad.';
+                    finalidad = 'Mejorar la calidad de los servicios brindados a la comunidad a través de la contratación especializada correspondiente.';
                 }
             }
 
-            texto.textContent = finalidad;
-            preview.style.display = 'block';
+            const complementos = [];
+            const iniciativaNombre = obtenerNombreCatalogo('iniciativas', iniciativa);
+            const oficinaNombre = obtenerNombreCatalogo('oficinas', oficina);
+            const tipoNombre = obtenerNombreCatalogo('tipos', tipo);
+            const fuenteNombre = obtenerNombreCatalogo('fuentes', fuente);
+
+            if (iniciativaNombre) {
+                complementos.push(`en el marco de la iniciativa "${iniciativaNombre}"`);
+            }
+            if (oficinaNombre) {
+                complementos.push(`desde la ${oficinaNombre}`);
+            }
+            if (tipoNombre) {
+                complementos.push(`a través del tipo ${tipoNombre.toLowerCase()}`);
+            }
+            if (fuenteNombre) {
+                complementos.push(`financiado con recursos de ${fuenteNombre}`);
+            }
+
+            if (complementos.length > 0) {
+                finalidad += ' ' + complementos.join(', ') + '.';
+            } else if (!finalidad.endsWith('.')) {
+                finalidad += '.';
+            }
+
+            return finalidad;
+        }
+
+        function actualizarFinalidadAutomatica(forzar = false) {
+            const campoFinalidad = document.getElementById('finalidad');
+            if (!campoFinalidad) return;
+
+            const finalidadGenerada = obtenerFinalidadAutomatica();
+            const valorActual = campoFinalidad.value.trim();
+
+            if (!finalidadGenerada) return;
+
+            if (forzar || !valorActual || !finalidadEditadaManual) {
+                campoFinalidad.value = finalidadGenerada;
+                finalidadEditadaManual = false;
+            }
         }
 
         // Cargar firmantes según cantidad seleccionada
@@ -1582,8 +1643,8 @@
                 .convertirNumeroALetras(total);
         }
 
-        // Generar justificación con IA
-        function generarJustificacionConIA() {
+        // Generar finalidad con IA
+        function generarFinalidadConIA() {
             const datos = {
                 descripcion: document.getElementById('descripcion').value,
                 iniciativa: obtenerNombreCatalogo('iniciativas', document.getElementById('iniciativa').value),
@@ -1594,28 +1655,31 @@
             };
 
             if (!datos.descripcion) {
-                mostrarAlerta('Por favor, complete la descripción antes de generar la justificación', 'error');
+                mostrarAlerta('Por favor, complete la descripción antes de generar la finalidad', 'error');
                 return;
             }
 
-            mostrarLoading(true, 'Generando justificación con IA...');
-            
+            mostrarLoading(true, 'Generando finalidad con IA...');
+
             google.script.run
                 .withSuccessHandler(resultado => {
                     mostrarLoading(false);
                     if (resultado.success) {
-                        document.getElementById('justificacion').value = resultado.justificacion;
-                        mostrarAlerta('Justificación generada exitosamente', 'success');
+                        document.getElementById('finalidad').value = resultado.finalidad;
+                        finalidadEditadaManual = true;
+                        mostrarAlerta('Finalidad generada exitosamente', 'success');
                     } else {
-                        mostrarAlerta('Error al generar justificación: ' + resultado.error, 'error');
-                        document.getElementById('justificacion').value = resultado.justificacion || 'Error al generar justificación automática. Por favor, elabore una justificación manual.';
+                        mostrarAlerta('Error al generar finalidad: ' + resultado.error, 'error');
+                        document.getElementById('finalidad').value = resultado.finalidad || 'Error al generar finalidad automática. Por favor, elabore una finalidad manual.';
+                        finalidadEditadaManual = true;
                     }
                 })
                 .withFailureHandler(error => {
                     mostrarLoading(false);
-                    mostrarAlerta('Error de conexión al generar justificación: ' + error.message, 'error');
+                    mostrarAlerta('Error de conexión al generar la finalidad: ' + error.message, 'error');
+                    finalidadEditadaManual = true;
                 })
-                .generarJustificacionIA(datos);
+                .generarFinalidadConIA(datos);
         }
 
         // Guardar nueva certificación
@@ -1631,7 +1695,7 @@
                 iniciativa: formData.get('iniciativa'),
                 tipo: formData.get('tipo'),
                 fuente: formData.get('fuente'),
-                justificacion: formData.get('justificacion'),
+                finalidad: (formData.get('finalidad') || '').trim(),
                 items: [],
                 firmantes: []
             };
@@ -1684,6 +1748,7 @@
                 return;
             }
 
+            mostrarAlerta('Creando certificación, por favor espere...', 'info');
             mostrarLoading(true, 'Creando certificación...');
 
             google.script.run
@@ -1714,14 +1779,15 @@
             document.getElementById('firmantesContainer').innerHTML = '';
             document.getElementById('totalMonto').textContent = '0.00';
             document.getElementById('montoLetras').textContent = '';
-            document.getElementById('finalidadPreview').style.display = 'none';
             document.getElementById('fechaCertificacion').value = new Date().toISOString().split('T')[0];
             contadorItems = 0;
-            
+            finalidadEditadaManual = false;
+
             // Reinicializar
             setTimeout(() => {
                 agregarItem();
                 cargarFirmantes();
+                actualizarFinalidadAutomatica(true);
             }, 100);
         }
 
