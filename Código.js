@@ -31,17 +31,6 @@ const SHEET_NAMES = Object.freeze({
   BITACORA: 'Bitacora'
 });
 
-const FINALIDAD_DETALLE_ALIASES = Object.freeze([
-  'finalidad detallada',
-  'finalidad detallada / justificación',
-  'finalidad detallada / justificacion',
-  'finalidad (detalle)',
-  'detalle de la finalidad',
-  'detalle finalidad',
-  'justificación',
-  'justificacion'
-]);
-
 const PLANTILLA_FIRMANTES = Object.freeze({
   plantilla_evelyn: {
     nombre: 'Evelyn Elena Huaycacllo Marin',
@@ -103,6 +92,19 @@ function findColumnIndexByAliases(headers, aliases, fallbackIndex = -1) {
   return fallbackIndex;
 }
 
+function getFinalidadDetalladaAliases() {
+  return [
+    'finalidad detallada',
+    'finalidad detallada / justificación',
+    'finalidad detallada / justificacion',
+    'finalidad (detalle)',
+    'detalle de la finalidad',
+    'detalle finalidad',
+    'justificación',
+    'justificacion'
+  ];
+}
+
 function getFinalidadDetalladaColumnIndex(sheet) {
   const lastColumn = sheet.getLastColumn();
   if (lastColumn === 0) {
@@ -111,7 +113,7 @@ function getFinalidadDetalladaColumnIndex(sheet) {
 
   const headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0] || [];
   const fallbackIndex = lastColumn >= 28 ? 27 : -1;
-  const index = findColumnIndexByAliases(headers, FINALIDAD_DETALLE_ALIASES, fallbackIndex);
+  const index = findColumnIndexByAliases(headers, getFinalidadDetalladaAliases(), fallbackIndex);
   return index >= lastColumn ? -1 : index;
 }
 
@@ -520,7 +522,7 @@ function obtenerCertificaciones(filtros = {}) {
     const headers = data[0] || [];
     const finalidadDetalladaIndex = findColumnIndexByAliases(
       headers,
-      FINALIDAD_DETALLE_ALIASES,
+      getFinalidadDetalladaAliases(),
       headers.length > 27 ? 27 : -1
     );
 
