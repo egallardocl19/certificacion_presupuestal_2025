@@ -15,6 +15,415 @@ const CONFIG = {
   CUSTOMER_ID: 'cus_T7t8xrMoWnLOgO'
 };
 
+const SHEET_NAMES = Object.freeze({
+  CERTIFICACIONES: 'Certificaciones',
+  ITEMS: 'Items',
+  FIRMANTES: 'Firmantes',
+  CONFIG_SOLICITANTES: 'Config_Solicitantes',
+  CONFIG_FIRMANTES: 'Config_Firmantes',
+  CONFIG_GENERAL: 'Config_General',
+  CATALOGO_INICIATIVAS: 'Cat_Iniciativas',
+  CATALOGO_TIPOS: 'Cat_Tipos',
+  CATALOGO_FUENTES: 'Cat_Fuentes',
+  CATALOGO_FINALIDADES: 'Cat_Finalidades',
+  CATALOGO_OFICINAS: 'Cat_Oficinas',
+  PLANTILLAS: 'Plantillas',
+  BITACORA: 'Bitacora'
+});
+
+const PLANTILLA_FIRMANTES = Object.freeze({
+  plantilla_evelyn: {
+    nombre: 'Evelyn Elena Huaycacllo Marin',
+    cargo: 'Jefa de la Oficina de Política, Planeamiento y Presupuesto'
+  },
+  plantilla_jorge: {
+    nombre: 'Jorge Herrera',
+    cargo: 'Director Ejecutivo'
+  },
+  plantilla_director: {
+    nombre: 'Padre Miguel Ángel Castillo Seminario',
+    cargo: 'Director Ejecutivo'
+  },
+  plantilla_1_firmante: {
+    nombre: 'Evelyn Elena Huaycacllo Marin',
+    cargo: 'Jefa de la Oficina de Política, Planeamiento y Presupuesto'
+  }
+});
+
+const DEFAULT_TIMEZONE = (() => {
+  try {
+    const tz = Session.getScriptTimeZone();
+    return tz || 'America/Lima';
+  } catch (error) {
+    Logger.log('No se pudo obtener la zona horaria del script: ' + error.toString());
+    return 'America/Lima';
+  }
+})();
+
+const CERTIFICACIONES_HEADERS = Object.freeze([
+  'Código',
+  'Fecha Emisión',
+  'Descripción',
+  'Iniciativa',
+  'Tipo',
+  'Fuente',
+  'Finalidad',
+  'Oficina',
+  'Solicitante',
+  'Cargo Solicitante',
+  'Email Solicitante',
+  'Número Autorización',
+  'Cargo Autorizador',
+  'Estado',
+  'Disposición/Base Legal',
+  'Monto Total',
+  'Monto en Letras',
+  'Fecha Creación',
+  'Creado Por',
+  'Fecha Modificación',
+  'Modificado Por',
+  'Fecha Anulación',
+  'Anulado Por',
+  'Motivo Anulación',
+  'Plantilla',
+  'URL Documento',
+  'URL PDF',
+  'Finalidad Detallada'
+]);
+
+const ITEMS_HEADERS = Object.freeze([
+  'Código Certificación',
+  'Orden',
+  'Descripción',
+  'Cantidad',
+  'Unidad',
+  'Precio Unitario',
+  'Subtotal',
+  'Fecha Creación',
+  'Creado Por'
+]);
+
+const FIRMANTES_HEADERS = Object.freeze([
+  'Código Certificación',
+  'Orden',
+  'Nombre',
+  'Cargo',
+  'Obligatorio',
+  'Fecha Creación',
+  'Creado Por'
+]);
+
+const BITACORA_HEADERS = Object.freeze([
+  'Fecha',
+  'Usuario',
+  'Acción',
+  'Detalles',
+  'Usuario Completo'
+]);
+
+function getSpreadsheet() {
+  return SpreadsheetApp.getActiveSpreadsheet();
+}
+
+function getSheetOrThrow(name) {
+  const sheet = getSpreadsheet().getSheetByName(name);
+  if (!sheet) {
+    throw new Error(`La hoja "${name}" no existe. Ejecute configurarSistema() primero.`);
+  }
+  return sheet;
+}
+
+function getSheetValues(sheet) {
+  return sheet.getDataRange().getValues();
+}
+
+function findRowIndex(values, columnIndex, value) {
+  for (let i = 1; i < values.length; i++) {
+    if (values[i][columnIndex] === value) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function normalizeHeaderName(value) {
+  return (value === null || value === undefined)
+    ? ''
+    : String(value).trim().toLowerCase();
+}
+
+function findColumnIndexByAliases(headers, aliases, fallbackIndex = -1) {
+  const normalizedHeaders = headers.map(normalizeHeaderName);
+  for (const alias of aliases) {
+    const index = normalizedHeaders.indexOf(alias);
+    if (index !== -1) {
+      return index;
+    }
+  }
+  return fallbackIndex;
+}
+
+const getDefaultFinalidadDetalladaAliases = (() => {
+  const defaults = Object.freeze([
+    'finalidad detallada',
+    'finalidad detallada / justificación',
+    'finalidad detallada / justificacion',
+    'finalidad (detalle)',
+    'detalle de la finalidad',
+    'detalle finalidad',
+    'justificación',
+    'justificacion'
+  ]);
+  return () => defaults;
+})();
+
+function getFinalidadDetalladaAliases() {
+  try {
+    const properties = PropertiesService.getScriptProperties();
+    const rawAliases = properties.getProperty('FINALIDAD_DETALLADA_ALIASES');
+
+    if (!rawAliases) {
+      return getDefaultFinalidadDetalladaAliases();
+    }
+
+    const parsedAliases = JSON.parse(rawAliases);
+    if (!Array.isArray(parsedAliases)) {
+      return getDefaultFinalidadDetalladaAliases();
+    }
+
+    const normalizedAliases = parsedAliases
+      .map(normalizeHeaderName)
+      .filter(Boolean);
+
+    const uniqueAliases = Array.from(new Set(normalizedAliases));
+    return uniqueAliases.length > 0 ? uniqueAliases : getDefaultFinalidadDetalladaAliases();
+  } catch (error) {
+    Logger.log('No se pudieron obtener alias personalizados de finalidad detallada: ' + error.toString());
+    return getDefaultFinalidadDetalladaAliases();
+  }
+}
+
+function getFinalidadDetalladaColumnIndex(sheet) {
+  const lastColumn = sheet.getLastColumn();
+  if (lastColumn === 0) {
+    return -1;
+  }
+
+  const headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0] || [];
+  const fallbackIndex = lastColumn >= 28 ? 27 : -1;
+  const index = findColumnIndexByAliases(headers, getFinalidadDetalladaAliases(), fallbackIndex);
+  return index >= lastColumn ? -1 : index;
+}
+
+function ensureSheetStructure(name, headers) {
+  const ss = getSpreadsheet();
+  let sheet = ss.getSheetByName(name);
+
+  if (!sheet) {
+    sheet = ss.insertSheet(name);
+  }
+
+  const requiredColumns = headers.length;
+  const maxColumns = sheet.getMaxColumns();
+  if (maxColumns < requiredColumns) {
+    sheet.insertColumnsAfter(maxColumns, requiredColumns - maxColumns);
+  }
+
+  const headerRange = sheet.getRange(1, 1, 1, requiredColumns);
+  const currentHeaders = headerRange.getValues()[0];
+
+  let needsUpdate = false;
+  const normalizedTarget = headers.map(normalizeHeaderName);
+  const normalizedCurrent = currentHeaders.map(normalizeHeaderName);
+
+  for (let i = 0; i < headers.length; i++) {
+    if (normalizedCurrent[i] !== normalizedTarget[i]) {
+      needsUpdate = true;
+      break;
+    }
+  }
+
+  if (needsUpdate) {
+    headerRange.setValues([headers]);
+  }
+
+  if (sheet.getFrozenRows() < 1) {
+    sheet.setFrozenRows(1);
+  }
+
+  return sheet;
+}
+
+function ensureCertificacionesSheet() {
+  return ensureSheetStructure(SHEET_NAMES.CERTIFICACIONES, CERTIFICACIONES_HEADERS);
+}
+
+function ensureItemsSheet() {
+  return ensureSheetStructure(SHEET_NAMES.ITEMS, ITEMS_HEADERS);
+}
+
+function ensureFirmantesSheet() {
+  return ensureSheetStructure(SHEET_NAMES.FIRMANTES, FIRMANTES_HEADERS);
+}
+
+function ensureBitacoraSheet() {
+  return ensureSheetStructure(SHEET_NAMES.BITACORA, BITACORA_HEADERS);
+}
+
+function getActiveUserEmail() {
+  try {
+    const email = Session.getActiveUser().getEmail();
+    return email || 'sistema@caritaslima.org';
+  } catch (error) {
+    Logger.log('No se pudo obtener el correo del usuario activo: ' + error.toString());
+    return 'sistema@caritaslima.org';
+  }
+}
+
+function sanitizeText(value, fallback = '') {
+  if (value === null || value === undefined) {
+    return fallback;
+  }
+  return String(value).trim();
+}
+
+function toDate(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? new Date(value.getTime()) : new Date(value);
+  return isNaN(date.getTime()) ? null : date;
+}
+
+function formatDateForClient(value) {
+  const date = toDate(value);
+  if (!date) return '';
+  return Utilities.formatDate(date, DEFAULT_TIMEZONE, 'yyyy-MM-dd');
+}
+
+function formatDateTimeForClient(value) {
+  const date = toDate(value);
+  if (!date) return '';
+  return Utilities.formatDate(date, DEFAULT_TIMEZONE, "yyyy-MM-dd'T'HH:mm:ss");
+}
+
+function parseNumber(value, fallback = 0) {
+  if (value === null || value === undefined || value === '') {
+    return fallback;
+  }
+  const numberValue = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(numberValue) ? numberValue : fallback;
+}
+
+function parseDate(value, fallback = new Date()) {
+  if (!value) return fallback;
+  try {
+    return new Date(value);
+  } catch (error) {
+    return fallback;
+  }
+}
+
+function prepararDatosCertificacion(datos, usuarioActual) {
+  const datosCompletos = { ...datos };
+
+  if (datosCompletos.solicitanteId) {
+    const solicitante = obtenerSolicitantePorId(datosCompletos.solicitanteId);
+    if (solicitante) {
+      datosCompletos.solicitante = solicitante.nombre;
+      datosCompletos.cargoSolicitante = solicitante.cargo;
+      datosCompletos.emailSolicitante = solicitante.email;
+    }
+  }
+
+  const itemsNormalizados = Array.isArray(datosCompletos.items)
+    ? datosCompletos.items.map(normalizarItemCertificacion).filter(Boolean)
+    : [];
+
+  return {
+    descripcion: sanitizeText(datosCompletos.descripcion),
+    iniciativa: sanitizeText(datosCompletos.iniciativa),
+    tipo: sanitizeText(datosCompletos.tipo),
+    fuente: sanitizeText(datosCompletos.fuente),
+    finalidad: sanitizeText(datosCompletos.finalidad),
+    finalidadDetallada: sanitizeText(datosCompletos.finalidadDetallada || datosCompletos.finalidad),
+    oficina: sanitizeText(datosCompletos.oficina),
+    solicitante: sanitizeText(datosCompletos.solicitante),
+    cargoSolicitante: sanitizeText(datosCompletos.cargoSolicitante),
+    emailSolicitante: sanitizeText(datosCompletos.emailSolicitante, usuarioActual),
+    disposicion: sanitizeText(datosCompletos.disposicion),
+    plantilla: sanitizeText(datosCompletos.plantilla, 'plantilla_evelyn'),
+    items: itemsNormalizados,
+    firmantes: Array.isArray(datosCompletos.firmantes) ? datosCompletos.firmantes : []
+  };
+}
+
+function normalizarItemCertificacion(item) {
+  if (!item) return null;
+  const descripcion = sanitizeText(item.descripcion);
+  if (!descripcion) return null;
+
+  const cantidad = Number(item.cantidad || 0);
+  const precioUnitario = Number(item.precioUnitario || item.precio || 0);
+  const subtotalCalculado = cantidad * precioUnitario;
+
+  return {
+    descripcion,
+    cantidad,
+    unidad: sanitizeText(item.unidad),
+    precioUnitario,
+    subtotal: subtotalCalculado
+  };
+}
+
+function mapRowToCertificacion(row, index, finalidadDetalladaIndex = -1) {
+  const tieneFinalidadDetallada = finalidadDetalladaIndex >= 0 && finalidadDetalladaIndex < row.length;
+  const fechaEmisionDate = toDate(row[1]);
+  const fechaCreacionDate = toDate(row[17]);
+  const fechaModificacionDate = toDate(row[19]);
+  const fechaAnulacionDate = toDate(row[21]);
+
+  const finalidad = sanitizeText(row[6]);
+  const finalidadDetallada = sanitizeText(
+    tieneFinalidadDetallada ? row[finalidadDetalladaIndex] : '',
+    finalidad
+  ) || finalidad;
+
+  return {
+    codigo: sanitizeText(row[0]),
+    fechaEmision: formatDateForClient(fechaEmisionDate),
+    fechaEmisionTimestamp: fechaEmisionDate ? fechaEmisionDate.getTime() : null,
+    descripcion: sanitizeText(row[2]),
+    iniciativa: sanitizeText(row[3]),
+    tipo: sanitizeText(row[4]),
+    fuente: sanitizeText(row[5]),
+    finalidad,
+    oficina: sanitizeText(row[7]),
+    solicitante: sanitizeText(row[8]),
+    cargoSolicitante: sanitizeText(row[9]),
+    emailSolicitante: sanitizeText(row[10]),
+    numeroAutorizacion: sanitizeText(row[11]),
+    cargoAutorizador: sanitizeText(row[12]),
+    estado: sanitizeText(row[13], ESTADOS.BORRADOR) || ESTADOS.BORRADOR,
+    disposicion: sanitizeText(row[14]),
+    montoTotal: parseNumber(row[15], 0),
+    montoLetras: sanitizeText(row[16]),
+    fechaCreacion: formatDateTimeForClient(fechaCreacionDate),
+    fechaCreacionTimestamp: fechaCreacionDate ? fechaCreacionDate.getTime() : null,
+    creadoPor: sanitizeText(row[18]),
+    fechaModificacion: formatDateTimeForClient(fechaModificacionDate),
+    fechaModificacionTimestamp: fechaModificacionDate ? fechaModificacionDate.getTime() : null,
+    modificadoPor: sanitizeText(row[20]),
+    fechaAnulacion: formatDateForClient(fechaAnulacionDate),
+    fechaAnulacionTimestamp: fechaAnulacionDate ? fechaAnulacionDate.getTime() : null,
+    anuladoPor: sanitizeText(row[22]),
+    motivoAnulacion: sanitizeText(row[23]),
+    plantilla: sanitizeText(row[24]) || 'plantilla_evelyn',
+    urlDocumento: sanitizeText(row[25]),
+    urlPDF: sanitizeText(row[26]),
+    finalidadDetallada,
+    fila: index + 1
+  };
+}
+
 // Estados de certificación
 const ESTADOS = {
   BORRADOR: 'Borrador',
@@ -53,101 +462,80 @@ function include(filename) {
 
 function crearCertificacion(datos) {
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName('Certificaciones');
-    
-    if (!sheet) {
-      throw new Error('La hoja "Certificaciones" no existe. Ejecute configurarSistema() primero.');
-    }
-    
+    const sheet = ensureCertificacionesSheet();
+
     Logger.log('Creando certificación con datos: ' + JSON.stringify(datos));
-    
-    // Generar código único CONSECUTIVO
+
     const codigo = generarCodigoCertificacionConsecutivo();
-    
-    // Usar fecha proporcionada o fecha actual
-    const fechaCertificacion = datos.fechaCertificacion ? new Date(datos.fechaCertificacion) : new Date();
     const fechaActual = new Date();
-    const usuario = Session.getActiveUser().getEmail();
-    
-    // Usar finalidad proporcionada o generar automáticamente
-    const finalidad = datos.finalidad || generarFinalidadAutomatica(datos.descripcion);
-    
-    // Obtener datos del solicitante si se proporciona ID
-    let datosCompletos = { ...datos };
-    if (datos.solicitanteId) {
-      const solicitante = obtenerSolicitantePorId(datos.solicitanteId);
-      if (solicitante) {
-        datosCompletos.solicitante = solicitante.nombre;
-        datosCompletos.cargoSolicitante = solicitante.cargo;
-        datosCompletos.emailSolicitante = solicitante.email;
-      }
-    }
-    
-    // Preparar datos básicos
+    const fechaCertificacion = parseDate(datos.fechaCertificacion || datos.fecha, fechaActual);
+    const usuario = getActiveUserEmail();
+
+    const datosCompletos = prepararDatosCertificacion(datos, usuario);
+    const finalidad = sanitizeText(datosCompletos.finalidad) || generarFinalidadAutomatica(datosCompletos.descripcion);
+    const finalidadDetallada = sanitizeText(datosCompletos.finalidadDetallada) || finalidad;
+    const disposicion = sanitizeText(datosCompletos.disposicion) || obtenerDisposicionPorDefecto();
+    const plantilla = sanitizeText(datosCompletos.plantilla) || 'plantilla_evelyn';
+
     const fila = [
-      codigo, // A - Código
-      fechaCertificacion, // B - Fecha Emisión
-      datosCompletos.descripcion || '', // C - Descripción
-      datosCompletos.iniciativa || '', // D - Iniciativa
-      datosCompletos.tipo || '', // E - Tipo
-      datosCompletos.fuente || '', // F - Fuente
-      finalidad, // G - Finalidad
-      datosCompletos.oficina || '', // H - Oficina
-      datosCompletos.solicitante || '', // I - Solicitante
-      datosCompletos.cargoSolicitante || '', // J - Cargo Solicitante
-      datosCompletos.emailSolicitante || usuario, // K - Email Solicitante
-      '', // L - Número Autorización
-      '', // M - Cargo Autorizador
-      ESTADOS.BORRADOR, // N - Estado
-      datosCompletos.disposicion || obtenerDisposicionPorDefecto(), // O - Disposición/Base Legal
-      0, // P - Monto Total
-      '', // Q - Monto en Letras
-      fechaActual, // R - Fecha Creación
-      usuario, // S - Creado Por
-      fechaActual, // T - Fecha Modificación
-      usuario, // U - Modificado Por
-      '', // V - Fecha Anulación
-      '', // W - Anulado Por
-      '', // X - Motivo Anulación
-      datosCompletos.plantilla || 'plantilla_evelyn', // Y - Plantilla
-      '', // Z - URL Documento
-      '', // AA - URL PDF
-      '' // AB - Campo libre
+      codigo,
+      fechaCertificacion,
+      datosCompletos.descripcion,
+      datosCompletos.iniciativa,
+      datosCompletos.tipo,
+      datosCompletos.fuente,
+      finalidad,
+      datosCompletos.oficina,
+      datosCompletos.solicitante,
+      datosCompletos.cargoSolicitante,
+      datosCompletos.emailSolicitante,
+      '',
+      '',
+      ESTADOS.BORRADOR,
+      disposicion,
+      0,
+      '',
+      fechaActual,
+      usuario,
+      fechaActual,
+      usuario,
+      '',
+      '',
+      '',
+      plantilla,
+      '',
+      '',
+      finalidadDetallada
     ];
-    
+
+    while (fila.length < CERTIFICACIONES_HEADERS.length) {
+      fila.push('');
+    }
+
     sheet.appendRow(fila);
-    Logger.log('Fila agregada a la hoja');
-    
-    // Crear ítems si existen
-    if (datosCompletos.items && datosCompletos.items.length > 0) {
-      Logger.log('Creando ítems: ' + datosCompletos.items.length);
+    SpreadsheetApp.flush();
+
+    if (datosCompletos.items.length > 0) {
       crearItemsCertificacion(codigo, datosCompletos.items);
     }
-    
-    // Crear firmantes basados en la plantilla
-    crearFirmantesBasadosEnPlantilla(codigo, datosCompletos.plantilla || 'plantilla_evelyn');
-    
-    // Recalcular totales
+
+    crearFirmantesBasadosEnPlantilla(codigo, plantilla);
     recalcularTotalesCertificacion(codigo);
-    
-    // GENERAR CERTIFICADO INMEDIATAMENTE (método que funciona perfecto)
-    Logger.log('Generando certificado automáticamente...');
+
     const resultadoGeneracion = generarCertificadoPerfecto(codigo);
-    
-    if (resultadoGeneracion.success) {
-      Logger.log(`✅ Certificado generado exitosamente: ${codigo}`);
-      Logger.log(`📄 URL Documento: ${resultadoGeneracion.urlDocumento}`);
-      Logger.log(`📁 URL PDF: ${resultadoGeneracion.urlPDF}`);
-    } else {
+
+    if (!resultadoGeneracion.success) {
       Logger.log(`❌ Error generando certificado: ${resultadoGeneracion.error}`);
     }
-    
+
     registrarActividad('CREAR_CERTIFICACION', `Código: ${codigo}`);
-    
-    return { 
-      success: true, 
-      codigo: codigo, 
+
+    const certificacionActualizada = obtenerCertificacionPorCodigo(codigo);
+
+    return {
+      success: true,
+      codigo,
+      certificacion: certificacionActualizada,
       certificado: resultadoGeneracion,
       urls: {
         documento: resultadoGeneracion.success ? resultadoGeneracion.urlDocumento : null,
@@ -328,72 +716,74 @@ function generarDocumentoCertificacion(codigoCertificacion) {
 
 function obtenerCertificaciones(filtros = {}) {
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName('Certificaciones');
-    
-    if (!sheet) {
-      Logger.log('La hoja "Certificaciones" no existe.');
-      return [];
-    }
-    
-    const data = sheet.getDataRange().getValues();
-    
+    const sheet = ensureCertificacionesSheet();
+    const data = getSheetValues(sheet);
+
     if (data.length <= 1) return [];
-    
-    const certificaciones = [];
-    
-    for (let i = 1; i < data.length; i++) {
-      const row = data[i];
-      if (!row[0]) continue; // Saltar filas vacías
-      
-      const cert = {
-        codigo: row[0],
-        fechaEmision: row[1],
-        descripcion: row[2],
-        iniciativa: row[3],
-        tipo: row[4],
-        fuente: row[5],
-        finalidad: row[6],
-        oficina: row[7],
-        solicitante: row[8],
-        cargoSolicitante: row[9],
-        emailSolicitante: row[10],
-        numeroAutorizacion: row[11],
-        cargoAutorizador: row[12],
-        estado: row[13],
-        disposicion: row[14],
-        montoTotal: row[15] || 0,
-        montoLetras: row[16],
-        fechaCreacion: row[17],
-        creadoPor: row[18],
-        fechaModificacion: row[19],
-        modificadoPor: row[20],
-        fechaAnulacion: row[21],
-        anuladoPor: row[22],
-        motivoAnulacion: row[23],
-        plantilla: row[24],
-        urlDocumento: row[25],
-        urlPDF: row[26],
-        fila: i + 1
-      };
-      
-      // Aplicar filtros básicos
-      if (filtros.estado && cert.estado !== filtros.estado) continue;
-      if (filtros.oficina && cert.oficina !== filtros.oficina) continue;
-      if (filtros.busqueda) {
-        const busqueda = filtros.busqueda.toLowerCase();
-        if (!cert.codigo.toLowerCase().includes(busqueda) && 
-            !cert.descripcion.toLowerCase().includes(busqueda) &&
-            !cert.solicitante.toLowerCase().includes(busqueda)) continue;
+
+    const headers = data[0] || [];
+    const finalidadDetalladaIndex = findColumnIndexByAliases(
+      headers,
+      getFinalidadDetalladaAliases(),
+      headers.length > 27 ? 27 : -1
+    );
+
+    const certificaciones = data
+      .slice(1)
+      .map((row, index) => {
+        if (!row[0]) {
+          return null;
+        }
+        return mapRowToCertificacion(row, index + 1, finalidadDetalladaIndex);
+      })
+      .filter(Boolean);
+
+    const fechaDesde = toDate(filtros.fechaDesde);
+    const fechaHasta = toDate(filtros.fechaHasta);
+
+    const filtradas = certificaciones.filter(cert => {
+      if (filtros.estado && cert.estado !== filtros.estado) return false;
+      if (filtros.oficina && cert.oficina !== filtros.oficina) return false;
+
+      if (fechaDesde) {
+        const fechaCert = toDate(cert.fechaEmision || cert.fechaCreacion);
+        if (fechaCert && fechaCert < fechaDesde) return false;
       }
-      
-      certificaciones.push(cert);
-    }
-    
-    return certificaciones;
+
+      if (fechaHasta) {
+        const fechaCert = toDate(cert.fechaEmision || cert.fechaCreacion);
+        if (fechaCert && fechaCert > fechaHasta) return false;
+      }
+
+      if (filtros.busqueda) {
+        const busqueda = sanitizeText(filtros.busqueda).toLowerCase();
+        const coincideBusqueda =
+          (cert.codigo || '').toLowerCase().includes(busqueda) ||
+          (cert.descripcion || '').toLowerCase().includes(busqueda) ||
+          (cert.solicitante || '').toLowerCase().includes(busqueda);
+        if (!coincideBusqueda) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+
+    const ordenadas = filtradas
+      .slice()
+      .sort((a, b) => {
+        const fechaA = a.fechaEmisionTimestamp || a.fechaCreacionTimestamp || 0;
+        const fechaB = b.fechaEmisionTimestamp || b.fechaCreacionTimestamp || 0;
+        if (fechaA !== fechaB) {
+          return fechaB - fechaA;
+        }
+        return (b.codigo || '').localeCompare(a.codigo || '');
+      });
+
+    return ordenadas;
   } catch (error) {
     Logger.log('Error en obtenerCertificaciones: ' + error.toString());
-    return [];
+    throw new Error('No se pudieron obtener certificaciones: ' + error.message);
   }
 }
 
@@ -418,82 +808,79 @@ function obtenerCertificacionPorCodigo(codigo) {
 
 function actualizarCertificacion(codigo, datos) {
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName('Certificaciones');
+    const sheet = ensureCertificacionesSheet();
     const dataRange = sheet.getDataRange();
     const values = dataRange.getValues();
-    
-    // Buscar la fila de la certificación
-    let filaIndex = -1;
-    for (let i = 1; i < values.length; i++) {
-      if (values[i][0] === codigo) {
-        filaIndex = i;
-        break;
-      }
-    }
-    
+    const filaIndex = findRowIndex(values, 0, codigo);
+
     if (filaIndex === -1) {
       return { success: false, error: 'Certificación no encontrada' };
     }
-    
-    const usuario = Session.getActiveUser().getEmail();
+
+    const usuario = getActiveUserEmail();
     const fechaActual = new Date();
-    
-    // Actualizar campos modificables
-    if (datos.fechaEmision !== undefined) values[filaIndex][1] = new Date(datos.fechaEmision);
+    const finalidadDetalladaIndex = getFinalidadDetalladaColumnIndex(sheet);
+    const puedeActualizarFinalidadDetallada = finalidadDetalladaIndex >= 0 && finalidadDetalladaIndex < values[0].length;
+
+    if (datos.fechaEmision !== undefined) {
+      values[filaIndex][1] = parseDate(datos.fechaEmision);
+    }
     if (datos.descripcion !== undefined) {
-      values[filaIndex][2] = datos.descripcion;
+      values[filaIndex][2] = sanitizeText(datos.descripcion);
       if (!datos.finalidad) {
-        values[filaIndex][6] = generarFinalidadAutomatica(datos.descripcion);
+        const finalidadAuto = generarFinalidadAutomatica(datos.descripcion);
+        values[filaIndex][6] = finalidadAuto;
+        if (puedeActualizarFinalidadDetallada) {
+          values[filaIndex][finalidadDetalladaIndex] = finalidadAuto;
+        }
       }
     }
-    if (datos.finalidad !== undefined) values[filaIndex][6] = datos.finalidad;
-    if (datos.iniciativa !== undefined) values[filaIndex][3] = datos.iniciativa;
-    if (datos.tipo !== undefined) values[filaIndex][4] = datos.tipo;
-    if (datos.fuente !== undefined) values[filaIndex][5] = datos.fuente;
-    if (datos.oficina !== undefined) values[filaIndex][7] = datos.oficina;
-    if (datos.solicitante !== undefined) values[filaIndex][8] = datos.solicitante;
-    if (datos.cargoSolicitante !== undefined) values[filaIndex][9] = datos.cargoSolicitante;
-    if (datos.emailSolicitante !== undefined) values[filaIndex][10] = datos.emailSolicitante;
-    if (datos.numeroAutorizacion !== undefined) values[filaIndex][11] = datos.numeroAutorizacion;
-    if (datos.cargoAutorizador !== undefined) values[filaIndex][12] = datos.cargoAutorizador;
-    if (datos.estado !== undefined) values[filaIndex][13] = datos.estado;
-    if (datos.disposicion !== undefined) values[filaIndex][14] = datos.disposicion;
-    if (datos.urlDocumento !== undefined) values[filaIndex][25] = datos.urlDocumento;
-    if (datos.urlPDF !== undefined) values[filaIndex][26] = datos.urlPDF;
-    
-    // Campos de control
-    values[filaIndex][19] = fechaActual; // Fecha Modificación
-    values[filaIndex][20] = usuario; // Modificado Por
-    
-    // Si se está anulando
-    if (datos.estado === ESTADOS.ANULADA) {
-      values[filaIndex][21] = fechaActual; // Fecha Anulación
-      values[filaIndex][22] = usuario; // Anulado Por
-      values[filaIndex][23] = datos.motivoAnulacion || ''; // Motivo Anulación
+    if (datos.finalidad !== undefined) {
+      const finalidadActualizada = sanitizeText(datos.finalidad);
+      values[filaIndex][6] = finalidadActualizada;
+      if (puedeActualizarFinalidadDetallada) {
+        values[filaIndex][finalidadDetalladaIndex] = finalidadActualizada;
+      }
     }
-    
-    // Actualizar la hoja
+    if (datos.iniciativa !== undefined) values[filaIndex][3] = sanitizeText(datos.iniciativa);
+    if (datos.tipo !== undefined) values[filaIndex][4] = sanitizeText(datos.tipo);
+    if (datos.fuente !== undefined) values[filaIndex][5] = sanitizeText(datos.fuente);
+    if (datos.oficina !== undefined) values[filaIndex][7] = sanitizeText(datos.oficina);
+    if (datos.solicitante !== undefined) values[filaIndex][8] = sanitizeText(datos.solicitante);
+    if (datos.cargoSolicitante !== undefined) values[filaIndex][9] = sanitizeText(datos.cargoSolicitante);
+    if (datos.emailSolicitante !== undefined) values[filaIndex][10] = sanitizeText(datos.emailSolicitante);
+    if (datos.numeroAutorizacion !== undefined) values[filaIndex][11] = sanitizeText(datos.numeroAutorizacion);
+    if (datos.cargoAutorizador !== undefined) values[filaIndex][12] = sanitizeText(datos.cargoAutorizador);
+    if (datos.estado !== undefined) values[filaIndex][13] = sanitizeText(datos.estado);
+    if (datos.disposicion !== undefined) values[filaIndex][14] = sanitizeText(datos.disposicion);
+    if (datos.urlDocumento !== undefined) values[filaIndex][25] = sanitizeText(datos.urlDocumento);
+    if (datos.urlPDF !== undefined) values[filaIndex][26] = sanitizeText(datos.urlPDF);
+
+    values[filaIndex][19] = fechaActual;
+    values[filaIndex][20] = usuario;
+
+    if (datos.estado === ESTADOS.ANULADA) {
+      values[filaIndex][21] = fechaActual;
+      values[filaIndex][22] = usuario;
+      values[filaIndex][23] = sanitizeText(datos.motivoAnulacion);
+    }
+
     dataRange.setValues(values);
-    
-    // Actualizar ítems si se proporcionan
+    SpreadsheetApp.flush();
+
     if (datos.items) {
       eliminarItemsCertificacion(codigo);
       crearItemsCertificacion(codigo, datos.items);
     }
-    
-    // Actualizar firmantes si se proporcionan
+
     if (datos.firmantes) {
       eliminarFirmantesCertificacion(codigo);
       crearFirmantesCertificacion(codigo, datos.firmantes);
     }
-    
-    // Recalcular totales
+
     recalcularTotalesCertificacion(codigo);
-    
-    // Registrar actividad
     registrarActividad('ACTUALIZAR_CERTIFICACION', `Código: ${codigo}`);
-    
+
     return { success: true };
   } catch (error) {
     Logger.log('Error en actualizarCertificacion: ' + error.toString());
@@ -507,31 +894,26 @@ function actualizarCertificacion(codigo, datos) {
 
 function obtenerSolicitantes() {
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    let sheet = ss.getSheetByName('Config_Solicitantes');
-    
-    if (!sheet) {
+    let sheet;
+    try {
+      sheet = getSheetOrThrow(SHEET_NAMES.CONFIG_SOLICITANTES);
+    } catch (error) {
       crearHojaConfigSolicitantes();
-      return obtenerSolicitantes();
+      sheet = getSheetOrThrow(SHEET_NAMES.CONFIG_SOLICITANTES);
     }
-    
-    const data = sheet.getDataRange().getValues();
+    const data = getSheetValues(sheet);
     if (data.length <= 1) return [];
-    
-    const solicitantes = [];
-    for (let i = 1; i < data.length; i++) {
-      const row = data[i];
-      if (!row[0]) continue;
-      
-      solicitantes.push({
+
+    const solicitantes = data.slice(1)
+      .filter(row => row[0])
+      .map(row => ({
         id: row[0],
         nombre: row[1],
         cargo: row[2],
         email: row[3],
         activo: row[4] !== false
-      });
-    }
-    
+      }));
+
     return solicitantes.filter(s => s.activo);
   } catch (error) {
     Logger.log('Error en obtenerSolicitantes: ' + error.toString());
@@ -551,17 +933,17 @@ function obtenerSolicitantePorId(id) {
 
 function obtenerConfiguracionGeneral() {
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    let sheet = ss.getSheetByName('Config_General');
-    
-    if (!sheet) {
+    let sheet;
+    try {
+      sheet = getSheetOrThrow(SHEET_NAMES.CONFIG_GENERAL);
+    } catch (error) {
       crearHojaConfigGeneral();
-      return obtenerConfiguracionGeneral();
+      sheet = getSheetOrThrow(SHEET_NAMES.CONFIG_GENERAL);
     }
-    
-    const data = sheet.getDataRange().getValues();
+
+    const data = getSheetValues(sheet);
     const config = {};
-    
+
     for (let i = 1; i < data.length; i++) {
       const row = data[i];
       if (row[0] && row[1]) {
@@ -583,31 +965,27 @@ function obtenerDisposicionPorDefecto() {
 
 function obtenerFirmantes() {
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    let sheet = ss.getSheetByName('Config_Firmantes');
-    
-    if (!sheet) {
+    let sheet;
+    try {
+      sheet = getSheetOrThrow(SHEET_NAMES.CONFIG_FIRMANTES);
+    } catch (error) {
       crearHojaConfigFirmantes();
-      return obtenerFirmantes();
+      sheet = getSheetOrThrow(SHEET_NAMES.CONFIG_FIRMANTES);
     }
-    
-    const data = sheet.getDataRange().getValues();
+
+    const data = getSheetValues(sheet);
     if (data.length <= 1) return [];
-    
-    const firmantes = [];
-    for (let i = 1; i < data.length; i++) {
-      const row = data[i];
-      if (!row[0]) continue;
-      
-      firmantes.push({
+
+    const firmantes = data.slice(1)
+      .filter(row => row[0])
+      .map(row => ({
         id: row[0],
         nombre: row[1],
         cargo: row[2],
         orden: row[3] || 1,
         activo: row[4] !== false
-      });
-    }
-    
+      }));
+
     return firmantes.filter(f => f.activo).sort((a, b) => a.orden - b.orden);
   } catch (error) {
     Logger.log('Error en obtenerFirmantes: ' + error.toString());
@@ -638,25 +1016,40 @@ function obtenerFirmantePorDefecto() {
 // GENERACIÓN DE FINALIDAD CON IA
 // ===============================================
 
-function generarFinalidadConIA(descripcion) {
+function generarFinalidadConIA(payload) {
+  let descripcionTexto = '';
   try {
-    if (!descripcion) {
+    const esObjeto = typeof payload === 'object' && payload !== null;
+    descripcionTexto = esObjeto ? payload.descripcion : payload;
+    if (!descripcionTexto) {
       return {
         success: false,
         finalidad: 'Complementar necesidades operativas de la institución.'
       };
     }
 
+    const detalles = [];
+    if (esObjeto) {
+      if (payload.iniciativa) detalles.push(`Iniciativa: ${payload.iniciativa}`);
+      if (payload.tipo) detalles.push(`Tipo de gasto: ${payload.tipo}`);
+      if (payload.fuente) detalles.push(`Fuente de financiamiento: ${payload.fuente}`);
+      if (payload.oficina) detalles.push(`Oficina solicitante: ${payload.oficina}`);
+      if (payload.montoEstimado) detalles.push(`Monto estimado: S/ ${payload.montoEstimado}`);
+    }
+
+    const contextoAdicional = detalles.length ? `\nDATOS ADICIONALES:\n- ${detalles.join('\n- ')}` : '';
+
     const prompt = `Basándote en la siguiente descripción de una certificación presupuestal de Cáritas Lima, genera una FINALIDAD concisa y específica:
 
-DESCRIPCIÓN: "${descripcion}"
+DESCRIPCIÓN: "${descripcionTexto}"
+${contextoAdicional}
 
 EJEMPLOS de finalidades correctas:
-- "Complementar con productos adicionales la conformación de los kits de ollas."
-- "Contar con implementos adecuados que faciliten el desarrollo de las actividades."
-- "Fortalecer el área de comunicaciones mediante la implementación de recursos tecnológicos."
-- "Garantizar el traslado oportuno y seguro de las donaciones."
-- "Garantizar que las personas beneficiarias reciban una nutrición adecuada y oportuna."
+- "Complementar con productos adicionales la conformación de los kits de ollas"
+- "Contar con implementos adecuados que faciliten el desarrollo de las actividades"
+- "Fortalecer el área de comunicaciones mediante la implementación de recursos tecnológicos"
+- "Garantizar el traslado oportuno y seguro de las donaciones"
+- "Garantizar que las personas beneficiarias reciban una nutrición adecuada y oportuna"
 
 INSTRUCCIONES:
 1. La finalidad debe ser específica al tipo de gasto descrito
@@ -668,7 +1061,7 @@ INSTRUCCIONES:
 
 Responde SOLO con la finalidad, sin explicaciones adicionales.`;
 
-    const payload = {
+    const requestBody = {
       model: CONFIG.AI_MODEL,
       messages: [
         {
@@ -691,7 +1084,7 @@ Responde SOLO con la finalidad, sin explicaciones adicionales.`;
         'Content-Type': 'application/json',
         'Authorization': 'Bearer xxx'
       },
-      payload: JSON.stringify(payload)
+      payload: JSON.stringify(requestBody)
     };
 
     const response = UrlFetchApp.fetch(CONFIG.AI_ENDPOINT, options);
@@ -714,7 +1107,7 @@ Responde SOLO con la finalidad, sin explicaciones adicionales.`;
     return {
       success: false,
       error: error.toString(),
-      finalidad: generarFinalidadAutomatica(descripcion)
+      finalidad: generarFinalidadAutomatica(descripcionTexto)
     };
   }
 }
@@ -756,13 +1149,12 @@ function generarFinalidadAutomatica(descripcion) {
 function generarCodigoCertificacionConsecutivo() {
   try {
     const año = new Date().getFullYear();
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName('Certificaciones');
-    
+    const sheet = getSpreadsheet().getSheetByName(SHEET_NAMES.CERTIFICACIONES);
+
     if (!sheet) {
       return `CP-${año}-0001`;
     }
-    
+
     const data = sheet.getDataRange().getValues();
     
     // Buscar el último número consecutivo del año
@@ -797,13 +1189,8 @@ function generarCodigoCertificacionConsecutivo() {
 
 function crearItemsCertificacion(codigoCertificacion, items) {
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName('Items');
-    
-    if (!sheet) {
-      throw new Error('La hoja "Items" no existe.');
-    }
-    
+    const sheet = ensureItemsSheet();
+
     items.forEach((item, index) => {
       const subtotal = (item.cantidad || 0) * (item.precioUnitario || 0);
       const fila = [
@@ -815,11 +1202,13 @@ function crearItemsCertificacion(codigoCertificacion, items) {
         item.precioUnitario || 0,
         subtotal,
         new Date(),
-        Session.getActiveUser().getEmail()
+        getActiveUserEmail()
       ];
       sheet.appendRow(fila);
     });
-    
+
+    SpreadsheetApp.flush();
+
     return { success: true };
   } catch (error) {
     Logger.log('Error en crearItemsCertificacion: ' + error.toString());
@@ -829,11 +1218,10 @@ function crearItemsCertificacion(codigoCertificacion, items) {
 
 function obtenerItemsCertificacion(codigoCertificacion) {
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName('Items');
-    
+    const sheet = getSpreadsheet().getSheetByName(SHEET_NAMES.ITEMS);
+
     if (!sheet) return [];
-    
+
     const data = sheet.getDataRange().getValues();
     
     if (data.length <= 1) return [];
@@ -865,11 +1253,10 @@ function obtenerItemsCertificacion(codigoCertificacion) {
 
 function eliminarItemsCertificacion(codigoCertificacion) {
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName('Items');
-    
+    const sheet = getSpreadsheet().getSheetByName(SHEET_NAMES.ITEMS);
+
     if (!sheet) return { success: true };
-    
+
     const data = sheet.getDataRange().getValues();
     
     for (let i = data.length - 1; i >= 1; i--) {
@@ -891,13 +1278,8 @@ function eliminarItemsCertificacion(codigoCertificacion) {
 
 function crearFirmantesCertificacion(codigoCertificacion, firmantes) {
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName('Firmantes');
-    
-    if (!sheet) {
-      throw new Error('La hoja "Firmantes" no existe.');
-    }
-    
+    const sheet = ensureFirmantesSheet();
+
     firmantes.forEach((firmante, index) => {
       const fila = [
         codigoCertificacion,
@@ -906,11 +1288,13 @@ function crearFirmantesCertificacion(codigoCertificacion, firmantes) {
         firmante.cargo || '',
         firmante.obligatorio || false,
         new Date(),
-        Session.getActiveUser().getEmail()
+        getActiveUserEmail()
       ];
       sheet.appendRow(fila);
     });
-    
+
+    SpreadsheetApp.flush();
+
     return { success: true };
   } catch (error) {
     Logger.log('Error en crearFirmantesCertificacion: ' + error.toString());
@@ -920,11 +1304,10 @@ function crearFirmantesCertificacion(codigoCertificacion, firmantes) {
 
 function obtenerFirmantesCertificacion(codigoCertificacion) {
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName('Firmantes');
-    
+    const sheet = getSpreadsheet().getSheetByName(SHEET_NAMES.FIRMANTES);
+
     if (!sheet) return [];
-    
+
     const data = sheet.getDataRange().getValues();
     
     if (data.length <= 1) return [];
@@ -954,11 +1337,10 @@ function obtenerFirmantesCertificacion(codigoCertificacion) {
 
 function eliminarFirmantesCertificacion(codigoCertificacion) {
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName('Firmantes');
-    
+    const sheet = getSpreadsheet().getSheetByName(SHEET_NAMES.FIRMANTES);
+
     if (!sheet) return { success: true };
-    
+
     const data = sheet.getDataRange().getValues();
     
     for (let i = data.length - 1; i >= 1; i--) {
@@ -976,23 +1358,8 @@ function eliminarFirmantesCertificacion(codigoCertificacion) {
 
 function crearFirmantesBasadosEnPlantilla(codigoCertificacion, plantillaId) {
   try {
-    const mapeoFirmantes = {
-      'plantilla_evelyn': {
-        nombre: 'Evelyn Elena Huaycacllo Marin',
-        cargo: 'Jefa de la Oficina de Política, Planeamiento y Presupuesto'
-      },
-      'plantilla_director': {
-        nombre: 'Padre Miguel Ángel Castillo Seminario',
-        cargo: 'Director Ejecutivo'
-      },
-      'plantilla_1_firmante': {
-        nombre: 'Evelyn Elena Huaycacllo Marin',
-        cargo: 'Jefa de la Oficina de Política, Planeamiento y Presupuesto'
-      }
-    };
-    
-    const firmante = mapeoFirmantes[plantillaId] || mapeoFirmantes['plantilla_evelyn'];
-    
+    const firmante = PLANTILLA_FIRMANTES[plantillaId] || PLANTILLA_FIRMANTES['plantilla_evelyn'];
+
     return crearFirmantesCertificacion(codigoCertificacion, [{
       nombre: firmante.nombre,
       cargo: firmante.cargo,
@@ -1005,60 +1372,7 @@ function crearFirmantesBasadosEnPlantilla(codigoCertificacion, plantillaId) {
 }
 
 function obtenerFirmantePorPlantilla(plantillaId) {
-  const firmantes = {
-    'plantilla_evelyn': {
-      nombre: 'Evelyn Travezaño',
-      cargo: 'Directora de Administración y Finanzas'
-    },
-    'plantilla_jorge': {
-      nombre: 'Jorge Herrera',
-      cargo: 'Director Ejecutivo'
-    },
-    'plantilla_director': {
-      nombre: 'Jorge Herrera',
-      cargo: 'Director Ejecutivo'
-    },
-    'plantilla_1_firmante': {
-      nombre: 'Evelyn Travezaño',
-      cargo: 'Directora de Administración y Finanzas'
-    }
-  };
-  
-  return firmantes[plantillaId] || firmantes['plantilla_evelyn'];
-}
-
-function crearFirmantesBasadosEnPlantilla(codigoCertificacion, plantillaId) {
-  try {
-    const mapeoFirmantes = {
-      'plantilla_evelyn': {
-        nombre: 'Evelyn Travezaño',
-        cargo: 'Directora de Administración y Finanzas'
-      },
-      'plantilla_jorge': {
-        nombre: 'Jorge Herrera',
-        cargo: 'Director Ejecutivo'
-      },
-      'plantilla_director': {
-        nombre: 'Jorge Herrera',
-        cargo: 'Director Ejecutivo'
-      },
-      'plantilla_1_firmante': {
-        nombre: 'Evelyn Travezaño',
-        cargo: 'Directora de Administración y Finanzas'
-      }
-    };
-    
-    const firmante = mapeoFirmantes[plantillaId] || mapeoFirmantes['plantilla_evelyn'];
-    
-    return crearFirmantesCertificacion(codigoCertificacion, [{
-      nombre: firmante.nombre,
-      cargo: firmante.cargo,
-      obligatorio: true
-    }]);
-  } catch (error) {
-    Logger.log('Error en crearFirmantesBasadosEnPlantilla: ' + error.toString());
-    return { success: false, error: error.toString() };
-  }
+  return PLANTILLA_FIRMANTES[plantillaId] || PLANTILLA_FIRMANTES['plantilla_evelyn'];
 }
 
 // ===============================================
@@ -1067,27 +1381,26 @@ function crearFirmantesBasadosEnPlantilla(codigoCertificacion, plantillaId) {
 
 function obtenerCatalogo(tipo) {
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    let nombreHoja = '';
-    
-    switch (tipo) {
-      case 'iniciativas': nombreHoja = 'Cat_Iniciativas'; break;
-      case 'tipos': nombreHoja = 'Cat_Tipos'; break;
-      case 'fuentes': nombreHoja = 'Cat_Fuentes'; break;
-      case 'finalidades': nombreHoja = 'Cat_Finalidades'; break;
-      case 'oficinas': nombreHoja = 'Cat_Oficinas'; break;
-      case 'plantillas': nombreHoja = 'Plantillas'; break;
-      case 'solicitantes': return obtenerSolicitantes();
-      case 'firmantes': return obtenerFirmantes();
-      default: return [];
-    }
-    
+    const ss = getSpreadsheet();
+    const nombreHoja = {
+      iniciativas: SHEET_NAMES.CATALOGO_INICIATIVAS,
+      tipos: SHEET_NAMES.CATALOGO_TIPOS,
+      fuentes: SHEET_NAMES.CATALOGO_FUENTES,
+      finalidades: SHEET_NAMES.CATALOGO_FINALIDADES,
+      oficinas: SHEET_NAMES.CATALOGO_OFICINAS,
+      plantillas: SHEET_NAMES.PLANTILLAS
+    }[tipo];
+
+    if (tipo === 'solicitantes') return obtenerSolicitantes();
+    if (tipo === 'firmantes') return obtenerFirmantes();
+    if (!nombreHoja) return [];
+
     const sheet = ss.getSheetByName(nombreHoja);
     if (!sheet) {
       Logger.log(`La hoja "${nombreHoja}" no existe.`);
       return [];
     }
-    
+
     const data = sheet.getDataRange().getValues();
     if (data.length <= 1) return [];
     
@@ -1129,7 +1442,7 @@ function obtenerCatalogo(tipo) {
 function obtenerEstadisticasDashboard() {
   try {
     const certificaciones = obtenerCertificaciones();
-    
+
     if (!certificaciones || certificaciones.length === 0) {
       return {
         success: true,
@@ -1151,7 +1464,7 @@ function obtenerEstadisticasDashboard() {
 
     const estadisticas = {
       total: certificaciones.length,
-      montoTotal: certificaciones.reduce((sum, cert) => sum + (cert.montoTotal || 0), 0),
+      montoTotal: certificaciones.reduce((sum, cert) => sum + parseNumber(cert.montoTotal, 0), 0),
       porEstado: {
         'Borrador': 0,
         'En revisión': 0,
@@ -1160,7 +1473,7 @@ function obtenerEstadisticasDashboard() {
         'Anulada': 0
       },
       porOficina: {},
-      certificacionesRecientes: certificaciones.slice(0, 10)
+      certificacionesRecientes: certificaciones.slice(0, 10).map(cert => ({ ...cert }))
     };
 
     // Contar por estado
@@ -1168,7 +1481,7 @@ function obtenerEstadisticasDashboard() {
       if (estadisticas.porEstado.hasOwnProperty(cert.estado)) {
         estadisticas.porEstado[cert.estado]++;
       }
-      
+
       // Contar por oficina
       const nombreOficina = obtenerNombreOficina(cert.oficina);
       estadisticas.porOficina[nombreOficina] = (estadisticas.porOficina[nombreOficina] || 0) + 1;
@@ -1201,13 +1514,12 @@ function obtenerEstadisticasDashboard() {
 function recalcularTotalesCertificacion(codigoCertificacion) {
   try {
     const items = obtenerItemsCertificacion(codigoCertificacion);
-    const total = items.reduce((sum, item) => sum + (item.subtotal || 0), 0);
-    const montoLetras = convertirNumeroALetras(total);
-    
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName('Certificaciones');
+    const total = items.reduce((sum, item) => sum + parseNumber(item.subtotal, 0), 0);
+    const montoLetras = convertirNumeroALetrasTexto(total);
+
+    const sheet = ensureCertificacionesSheet();
     const data = sheet.getDataRange().getValues();
-    
+
     for (let i = 1; i < data.length; i++) {
       if (data[i][0] === codigoCertificacion) {
         sheet.getRange(i + 1, 16).setValue(total);
@@ -1215,7 +1527,9 @@ function recalcularTotalesCertificacion(codigoCertificacion) {
         break;
       }
     }
-    
+
+    SpreadsheetApp.flush();
+
     return { success: true, total: total, montoLetras: montoLetras };
   } catch (error) {
     Logger.log('Error en recalcularTotalesCertificacion: ' + error.toString());
@@ -1223,82 +1537,133 @@ function recalcularTotalesCertificacion(codigoCertificacion) {
   }
 }
 
+function convertirNumeroALetrasTexto(numero) {
+  const cantidad = parseNumber(numero, 0);
+  if (cantidad === 0) {
+    return 'CERO CON 00/100 SOLES';
+  }
+
+  const unidades = ['', 'UNO', 'DOS', 'TRES', 'CUATRO', 'CINCO', 'SEIS', 'SIETE', 'OCHO', 'NUEVE'];
+  const decenas = ['', '', 'VEINTE', 'TREINTA', 'CUARENTA', 'CINCUENTA', 'SESENTA', 'SETENTA', 'OCHENTA', 'NOVENTA'];
+  const especiales = ['DIEZ', 'ONCE', 'DOCE', 'TRECE', 'CATORCE', 'QUINCE', 'DIECISÉIS', 'DIECISIETE', 'DIECIOCHO', 'DIECINUEVE'];
+  const centenas = ['', 'CIENTO', 'DOSCIENTOS', 'TRESCIENTOS', 'CUATROCIENTOS', 'QUINIENTOS', 'SEISCIENTOS', 'SETECIENTOS', 'OCHOCIENTOS', 'NOVECIENTOS'];
+
+  const entero = Math.floor(cantidad);
+  const decimales = Math.round((cantidad - entero) * 100);
+
+  function convertirGrupo(num) {
+    if (num === 0) return '';
+
+    let resultado = '';
+    const c = Math.floor(num / 100);
+    const d = Math.floor((num % 100) / 10);
+    const u = num % 10;
+
+    if (c > 0) {
+      if (c === 1 && d === 0 && u === 0) {
+        resultado += 'CIEN';
+      } else {
+        resultado += centenas[c];
+      }
+    }
+
+    if (d > 0) {
+      if (resultado) resultado += ' ';
+
+      if (d === 1) {
+        resultado += especiales[u];
+        return resultado;
+      }
+
+      if (d === 2 && u > 0) {
+        resultado += 'VEINTI';
+      } else {
+        resultado += decenas[d];
+      }
+    }
+
+    if (u > 0 && d !== 1) {
+      if (resultado) resultado += ' ';
+      if (d === 2) {
+        resultado += unidades[u].toLowerCase();
+      } else {
+        resultado += unidades[u];
+      }
+    }
+
+    if (!resultado) {
+      resultado = unidades[u];
+    }
+
+    return resultado.trim();
+  }
+
+  function convertirMiles(num) {
+    if (num === 0) return '';
+
+    const miles = Math.floor(num / 1000);
+    const resto = num % 1000;
+    let resultado = '';
+
+    if (miles > 0) {
+      if (miles === 1) {
+        resultado += 'MIL';
+      } else {
+        resultado += `${convertirGrupo(miles)} MIL`;
+      }
+    }
+
+    if (resto > 0) {
+      if (resultado) resultado += ' ';
+      resultado += convertirGrupo(resto);
+    }
+
+    return resultado.trim();
+  }
+
+  function convertirMillones(num) {
+    if (num === 0) return '';
+
+    const millones = Math.floor(num / 1000000);
+    const resto = num % 1000000;
+    let resultado = '';
+
+    if (millones > 0) {
+      if (millones === 1) {
+        resultado += 'UN MILLÓN';
+      } else {
+        resultado += `${convertirMiles(millones)} MILLONES`;
+      }
+    }
+
+    if (resto > 0) {
+      if (resultado) resultado += ' ';
+      resultado += convertirMiles(resto);
+    }
+
+    return resultado.trim();
+  }
+
+  const letras = convertirMillones(entero);
+  const decimalesTexto = decimales.toString().padStart(2, '0');
+
+  return `${letras || 'CERO'} CON ${decimalesTexto}/100 SOLES`;
+}
+
 function convertirNumeroALetras(numero) {
   try {
-    if (numero === 0) return 'CERO CON 00/100 SOLES';
-    
-    const unidades = ['', 'UNO', 'DOS', 'TRES', 'CUATRO', 'CINCO', 'SEIS', 'SIETE', 'OCHO', 'NUEVE'];
-    const decenas = ['', '', 'VEINTE', 'TREINTA', 'CUARENTA', 'CINCUENTA', 'SESENTA', 'SETENTA', 'OCHENTA', 'NOVENTA'];
-    const especiales = ['DIEZ', 'ONCE', 'DOCE', 'TRECE', 'CATORCE', 'QUINCE', 'DIECISÉIS', 'DIECISIETE', 'DIECIOCHO', 'DIECINUEVE'];
-    const centenas = ['', 'CIENTO', 'DOSCIENTOS', 'TRESCIENTOS', 'CUATROCIENTOS', 'QUINIENTOS', 'SEISCIENTOS', 'SETECIENTOS', 'OCHOCIENTOS', 'NOVECIENTOS'];
-    
-    const entero = Math.floor(numero);
-    const decimales = Math.round((numero - entero) * 100);
-    
-    function convertirGrupo(num) {
-      if (num === 0) return '';
-      
-      let resultado = '';
-      const c = Math.floor(num / 100);
-      const d = Math.floor((num % 100) / 10);
-      const u = num % 10;
-      
-      if (c > 0) {
-        if (c === 1 && d === 0 && u === 0) {
-          resultado += 'CIEN';
-        } else {
-          resultado += centenas[c];
-        }
-      }
-      
-      if (d > 0) {
-        if (d === 1 && u > 0) {
-          resultado += (resultado ? ' ' : '') + especiales[u];
-        } else {
-          resultado += (resultado ? ' ' : '') + decenas[d];
-          if (u > 0) {
-            resultado += (d === 2 ? '' : ' Y ') + unidades[u];
-          }
-        }
-      } else if (u > 0) {
-        resultado += (resultado ? ' ' : '') + unidades[u];
-      }
-      
-      return resultado;
-    }
-    
-    let resultado = '';
-    
-    if (entero >= 1000000) {
-      const millones = Math.floor(entero / 1000000);
-      resultado += convertirGrupo(millones);
-      if (millones === 1) {
-        resultado += ' MILLÓN';
-      } else {
-        resultado += ' MILLONES';
-      }
-      entero = entero % 1000000;
-    }
-    
-    if (entero >= 1000) {
-      const miles = Math.floor(entero / 1000);
-      if (miles > 1) {
-        resultado += (resultado ? ' ' : '') + convertirGrupo(miles) + ' MIL';
-      } else {
-        resultado += (resultado ? ' ' : '') + 'MIL';
-      }
-      entero = entero % 1000;
-    }
-    
-    if (entero > 0) {
-      resultado += (resultado ? ' ' : '') + convertirGrupo(entero);
-    }
-    
-    const decimalesStr = decimales.toString().padStart(2, '0');
-    return resultado + ` CON ${decimalesStr}/100 SOLES`;
+    const montoEnLetras = convertirNumeroALetrasTexto(numero);
+    return {
+      success: true,
+      montoLetras: montoEnLetras
+    };
   } catch (error) {
     Logger.log('Error en convertirNumeroALetras: ' + error.toString());
-    return 'ERROR EN CONVERSIÓN';
+    return {
+      success: false,
+      error: error.toString(),
+      montoLetras: 'CERO CON 00/100 SOLES'
+    };
   }
 }
 
@@ -1308,22 +1673,21 @@ function convertirNumeroALetras(numero) {
 
 function registrarActividad(accion, detalles = '') {
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName('Bitacora');
-    if (!sheet) return;
-    
-    const usuario = Session.getActiveUser().getEmail();
+    const sheet = ensureBitacoraSheet();
+
+    const usuario = getActiveUserEmail();
     const fecha = new Date();
-    
+
     const fila = [
       fecha,
       usuario,
       accion,
       detalles,
-      Session.getActiveUser().toString()
+      usuario
     ];
     
     sheet.appendRow(fila);
+    SpreadsheetApp.flush();
   } catch (error) {
     Logger.log('Error en registrarActividad: ' + error.toString());
   }
