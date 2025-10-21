@@ -31,6 +31,17 @@ const SHEET_NAMES = Object.freeze({
   BITACORA: 'Bitacora'
 });
 
+const FINALIDAD_DETALLE_ALIASES = Object.freeze([
+  'finalidad detallada',
+  'finalidad detallada / justificación',
+  'finalidad detallada / justificacion',
+  'finalidad (detalle)',
+  'detalle de la finalidad',
+  'detalle finalidad',
+  'justificación',
+  'justificacion'
+]);
+
 const PLANTILLA_FIRMANTES = Object.freeze({
   plantilla_evelyn: {
     nombre: 'Evelyn Elena Huaycacllo Marin',
@@ -73,6 +84,35 @@ function findRowIndex(values, columnIndex, value) {
     }
   }
   return -1;
+}
+
+function normalizeHeaderName(value) {
+  return (value === null || value === undefined)
+    ? ''
+    : String(value).trim().toLowerCase();
+}
+
+function findColumnIndexByAliases(headers, aliases, fallbackIndex = -1) {
+  const normalizedHeaders = headers.map(normalizeHeaderName);
+  for (const alias of aliases) {
+    const index = normalizedHeaders.indexOf(alias);
+    if (index !== -1) {
+      return index;
+    }
+  }
+  return fallbackIndex;
+}
+
+function getFinalidadDetalladaColumnIndex(sheet) {
+  const lastColumn = sheet.getLastColumn();
+  if (lastColumn === 0) {
+    return -1;
+  }
+
+  const headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0] || [];
+  const fallbackIndex = lastColumn >= 28 ? 27 : -1;
+  const index = findColumnIndexByAliases(headers, FINALIDAD_DETALLE_ALIASES, fallbackIndex);
+  return index >= lastColumn ? -1 : index;
 }
 
 function getActiveUserEmail() {
@@ -152,7 +192,8 @@ function normalizarItemCertificacion(item) {
   };
 }
 
-function mapRowToCertificacion(row, index) {
+function mapRowToCertificacion(row, index, finalidadDetalladaIndex = -1) {
+  const tieneFinalidadDetallada = finalidadDetalladaIndex >= 0 && finalidadDetalladaIndex < row.length;
   return {
     codigo: row[0],
     fechaEmision: row[1],
@@ -181,7 +222,7 @@ function mapRowToCertificacion(row, index) {
     plantilla: row[24],
     urlDocumento: row[25],
     urlPDF: row[26],
-    finalidadDetallada: row[27],
+    finalidadDetallada: tieneFinalidadDetallada ? row[finalidadDetalladaIndex] : '',
     fila: index + 1
   };
 }
@@ -474,13 +515,20 @@ function obtenerCertificaciones(filtros = {}) {
 
     if (data.length <= 1) return [];
 
+    const headers = data[0] || [];
+    const finalidadDetalladaIndex = findColumnIndexByAliases(
+      headers,
+      FINALIDAD_DETALLE_ALIASES,
+      headers.length > 27 ? 27 : -1
+    );
+
     const certificaciones = data
       .slice(1)
       .map((row, index) => {
         if (!row[0]) {
           return null;
         }
-        return mapRowToCertificacion(row, index + 1);
+        return mapRowToCertificacion(row, index + 1, finalidadDetalladaIndex);
       })
       .filter(Boolean)
       .filter(cert => {
@@ -538,6 +586,8 @@ function actualizarCertificacion(codigo, datos) {
 
     const usuario = getActiveUserEmail();
     const fechaActual = new Date();
+    const finalidadDetalladaIndex = getFinalidadDetalladaColumnIndex(sheet);
+    const puedeActualizarFinalidadDetallada = finalidadDetalladaIndex >= 0 && finalidadDetalladaIndex < values[0].length;
 
     if (datos.fechaEmision !== undefined) {
       values[filaIndex][1] = parseDate(datos.fechaEmision);
@@ -547,13 +597,17 @@ function actualizarCertificacion(codigo, datos) {
       if (!datos.finalidad) {
         const finalidadAuto = generarFinalidadAutomatica(datos.descripcion);
         values[filaIndex][6] = finalidadAuto;
-        values[filaIndex][27] = finalidadAuto;
+        if (puedeActualizarFinalidadDetallada) {
+          values[filaIndex][finalidadDetalladaIndex] = finalidadAuto;
+        }
       }
     }
     if (datos.finalidad !== undefined) {
       const finalidadActualizada = sanitizeText(datos.finalidad);
       values[filaIndex][6] = finalidadActualizada;
-      values[filaIndex][27] = finalidadActualizada;
+      if (puedeActualizarFinalidadDetallada) {
+        values[filaIndex][finalidadDetalladaIndex] = finalidadActualizada;
+      }
     }
     if (datos.iniciativa !== undefined) values[filaIndex][3] = sanitizeText(datos.iniciativa);
     if (datos.tipo !== undefined) values[filaIndex][4] = sanitizeText(datos.tipo);

@@ -158,12 +158,10 @@ function crearHojaConfigGeneral(ss) {
 
 function crearHojaCertificaciones(ss) {
   let sheet = ss.getSheetByName('Certificaciones');
-  if (sheet) {
-    ss.deleteSheet(sheet);
+  if (!sheet) {
+    sheet = ss.insertSheet('Certificaciones');
   }
-  
-  sheet = ss.insertSheet('Certificaciones');
-  
+
   const headers = [
     'Código', // A
     'Fecha Emisión', // B - PERMITIR MODIFICAR
@@ -194,9 +192,10 @@ function crearHojaCertificaciones(ss) {
     'URL PDF', // AA
     'Finalidad Detallada' // AB
   ];
-  
+
+  asegurarColumnasMinimas(sheet, headers.length);
   sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-  
+
   // Formatear encabezados
   const headerRange = sheet.getRange(1, 1, 1, headers.length);
   headerRange.setBackground('#019952');
@@ -215,10 +214,17 @@ function crearHojaCertificaciones(ss) {
   sheet.setColumnWidth(8, 120); // Oficina
   sheet.setColumnWidth(9, 150); // Solicitante
   sheet.setColumnWidth(10, 120); // Cargo Solicitante
-  
+
   sheet.setFrozenRows(1);
-  
-  Logger.log('Hoja de Certificaciones creada');
+
+  Logger.log('Hoja de Certificaciones actualizada');
+}
+
+function asegurarColumnasMinimas(sheet, cantidadColumnas) {
+  const columnasActuales = sheet.getMaxColumns();
+  if (columnasActuales < cantidadColumnas) {
+    sheet.insertColumnsAfter(columnasActuales, cantidadColumnas - columnasActuales);
+  }
 }
 
 function crearHojaItems(ss) {
