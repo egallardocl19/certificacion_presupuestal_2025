@@ -3,6 +3,140 @@
 // Google Apps Script Setup
 // ===============================================
 
+// Helpers defensivos -------------------------------------------------------
+//
+// Cuando el archivo de configuración se ejecuta sin haber cargado todavía
+// // Código.js (por ejemplo al depurar funciones individuales en Apps Script)
+// // algunas utilidades como `ensureSheetStructure` o `ensureCertificacionesSheet`
+// // no existen en el ámbito global.  Para evitar ReferenceError se definen
+// // implementaciones básicas que respetan la firma esperada únicamente cuando
+// // aún no hay una versión oficial disponible.
+
+if (typeof normalizeHeaderName !== 'function') {
+  var normalizeHeaderName = function (value) {
+    if (value === null || value === undefined) {
+      return '';
+    }
+    try {
+      return String(value)
+        .trim()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+    } catch (error) {
+      return String(value).trim().toLowerCase();
+    }
+  };
+}
+
+if (typeof ensureSheetStructure !== 'function') {
+  var ensureSheetStructure = function (name, headers) {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let sheet = ss.getSheetByName(name);
+
+    if (!sheet) {
+      sheet = ss.insertSheet(name);
+    }
+
+    if (Array.isArray(headers) && headers.length > 0) {
+      const range = sheet.getRange(1, 1, 1, headers.length);
+      const current = range.getValues()[0];
+      const target = headers.map(normalizeHeaderName);
+      const normalizedCurrent = current.map(normalizeHeaderName);
+
+      let needsUpdate = normalizedCurrent.length !== target.length;
+      if (!needsUpdate) {
+        for (let i = 0; i < target.length; i++) {
+          if (normalizedCurrent[i] !== target[i]) {
+            needsUpdate = true;
+            break;
+          }
+        }
+      }
+
+      if (needsUpdate) {
+        range.setValues([headers]);
+      }
+      if (sheet.getFrozenRows() < 1) {
+        sheet.setFrozenRows(1);
+      }
+    }
+
+    return sheet;
+  };
+}
+
+if (typeof ensureCertificacionesSheet !== 'function') {
+  var ensureCertificacionesSheet = function () {
+    return ensureSheetStructure(
+      SHEET_NAMES && SHEET_NAMES.CERTIFICACIONES ? SHEET_NAMES.CERTIFICACIONES : 'Certificaciones',
+      typeof CERTIFICACIONES_HEADERS !== 'undefined' ? CERTIFICACIONES_HEADERS : [
+        'Código',
+        'Fecha Emisión',
+        'Descripción',
+        'Iniciativa',
+        'Tipo',
+        'Fuente',
+        'Finalidad',
+        'Oficina',
+        'Solicitante',
+        'Cargo Solicitante',
+        'Email Solicitante',
+        'Número Autorización',
+        'Cargo Autorizador',
+        'Estado',
+        'Disposición/Base Legal',
+        'Monto Total',
+        'Monto en Letras',
+        'Fecha Creación',
+        'Creado Por',
+        'Fecha Modificación',
+        'Modificado Por',
+        'Fecha Anulación',
+        'Anulado Por',
+        'Motivo Anulación',
+        'Plantilla',
+        'URL Documento',
+        'URL PDF',
+        'Finalidad Detallada'
+      ]
+    );
+  };
+}
+
+if (typeof ensureItemsSheet !== 'function') {
+  var ensureItemsSheet = function () {
+    return ensureSheetStructure(
+      SHEET_NAMES && SHEET_NAMES.ITEMS ? SHEET_NAMES.ITEMS : 'Items',
+      typeof ITEMS_HEADERS !== 'undefined'
+        ? ITEMS_HEADERS
+        : ['Código Certificación', 'Orden', 'Descripción', 'Cantidad', 'Unidad', 'Precio Unitario', 'Subtotal', 'Fecha Creación', 'Creado Por']
+    );
+  };
+}
+
+if (typeof ensureFirmantesSheet !== 'function') {
+  var ensureFirmantesSheet = function () {
+    return ensureSheetStructure(
+      SHEET_NAMES && SHEET_NAMES.FIRMANTES ? SHEET_NAMES.FIRMANTES : 'Firmantes',
+      typeof FIRMANTES_HEADERS !== 'undefined'
+        ? FIRMANTES_HEADERS
+        : ['Código Certificación', 'Orden', 'Nombre', 'Cargo', 'Obligatorio', 'Fecha Creación', 'Creado Por']
+    );
+  };
+}
+
+if (typeof ensureBitacoraSheet !== 'function') {
+  var ensureBitacoraSheet = function () {
+    return ensureSheetStructure(
+      SHEET_NAMES && SHEET_NAMES.BITACORA ? SHEET_NAMES.BITACORA : 'Bitacora',
+      typeof BITACORA_HEADERS !== 'undefined'
+        ? BITACORA_HEADERS
+        : ['Fecha', 'Usuario', 'Acción', 'Detalles', 'Usuario Completo']
+    );
+  };
+}
+
 function configurarSistema() {
   try {
     Logger.log('Iniciando configuración del sistema...');
@@ -96,101 +230,62 @@ function crearEstructuraHojas() {
 // ===============================================
 
 function crearHojaConfigSolicitantes(ss) {
-  let sheet = ss.getSheetByName('Config_Solicitantes');
-  if (sheet) {
-    ss.deleteSheet(sheet);
-  }
-  
-  sheet = ss.insertSheet('Config_Solicitantes');
-  
-  const headers = [
-    'ID', // A
-    'Nombre Completo', // B
-    'Cargo', // C
-    'Email', // D
-    'Activo' // E
-  ];
-  
-  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-  
-  // Formatear encabezados
+  const headers = ['ID', 'Nombre Completo', 'Cargo', 'Email', 'Activo'];
+  const sheet = ensureSheetStructure(
+    SHEET_NAMES && SHEET_NAMES.CONFIG_SOLICITANTES ? SHEET_NAMES.CONFIG_SOLICITANTES : 'Config_Solicitantes',
+    headers
+  );
+
   const headerRange = sheet.getRange(1, 1, 1, headers.length);
   headerRange.setBackground('#019952');
   headerRange.setFontColor('white');
   headerRange.setFontWeight('bold');
-  
+
   sheet.setColumnWidth(1, 80);
   sheet.setColumnWidth(2, 200);
   sheet.setColumnWidth(3, 200);
   sheet.setColumnWidth(4, 200);
   sheet.setColumnWidth(5, 80);
-  
-  sheet.setFrozenRows(1);
-  
+
   Logger.log('Hoja Config_Solicitantes creada');
 }
 
 function crearHojaConfigFirmantes(ss) {
-  let sheet = ss.getSheetByName('Config_Firmantes');
-  if (sheet) {
-    ss.deleteSheet(sheet);
-  }
-  
-  sheet = ss.insertSheet('Config_Firmantes');
-  
-  const headers = [
-    'ID', // A
-    'Nombre Completo', // B
-    'Cargo', // C
-    'Orden', // D
-    'Activo' // E
-  ];
-  
-  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-  
-  // Formatear encabezados
+  const headers = ['ID', 'Nombre Completo', 'Cargo', 'Orden', 'Activo'];
+  const sheet = ensureSheetStructure(
+    SHEET_NAMES && SHEET_NAMES.CONFIG_FIRMANTES ? SHEET_NAMES.CONFIG_FIRMANTES : 'Config_Firmantes',
+    headers
+  );
+
   const headerRange = sheet.getRange(1, 1, 1, headers.length);
   headerRange.setBackground('#019952');
   headerRange.setFontColor('white');
   headerRange.setFontWeight('bold');
-  
+
   sheet.setColumnWidth(1, 80);
   sheet.setColumnWidth(2, 200);
   sheet.setColumnWidth(3, 200);
   sheet.setColumnWidth(4, 80);
   sheet.setColumnWidth(5, 80);
-  
-  sheet.setFrozenRows(1);
-  
+
   Logger.log('Hoja Config_Firmantes creada');
 }
 
 function crearHojaConfigGeneral(ss) {
-  let sheet = ss.getSheetByName('Config_General');
-  if (sheet) {
-    ss.deleteSheet(sheet);
-  }
-  
-  sheet = ss.insertSheet('Config_General');
-  
-  const headers = [
-    'Configuración', // A
-    'Valor' // B
-  ];
-  
-  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-  
-  // Formatear encabezados
+  const headers = ['Configuración', 'Valor'];
+  const sheet = ensureSheetStructure(
+    SHEET_NAMES && SHEET_NAMES.CONFIG_GENERAL ? SHEET_NAMES.CONFIG_GENERAL : 'Config_General',
+    headers
+  );
+
   const headerRange = sheet.getRange(1, 1, 1, headers.length);
   headerRange.setBackground('#019952');
   headerRange.setFontColor('white');
   headerRange.setFontWeight('bold');
-  
+
   sheet.setColumnWidth(1, 250);
   sheet.setColumnWidth(2, 400);
-  
-  sheet.setFrozenRows(1);
-  
+
   Logger.log('Hoja Config_General creada');
 }
 
@@ -269,34 +364,35 @@ function asegurarColumnasMinimas(sheet, cantidadColumnas) {
   }
 }
 
-function crearHojaItems(ss) {
-  let sheet = ss.getSheetByName('Items');
-  if (sheet) {
-    ss.deleteSheet(sheet);
+function asegurarColumnasMinimas(sheet, cantidadColumnas) {
+  const columnasActuales = sheet.getMaxColumns();
+  if (columnasActuales < cantidadColumnas) {
+    sheet.insertColumnsAfter(columnasActuales, cantidadColumnas - columnasActuales);
   }
-  
-  sheet = ss.insertSheet('Items');
-  
+}
+
+function crearHojaItems(ss) {
   const headers = [
-    'Código Certificación', // A
-    'Orden', // B
-    'Descripción', // C
-    'Cantidad', // D
-    'Unidad', // E
-    'Precio Unitario', // F
-    'Subtotal', // G
-    'Fecha Creación', // H
-    'Creado Por' // I
+    'Código Certificación',
+    'Orden',
+    'Descripción',
+    'Cantidad',
+    'Unidad',
+    'Precio Unitario',
+    'Subtotal',
+    'Fecha Creación',
+    'Creado Por'
   ];
-  
-  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-  
-  // Formatear encabezados
+  const sheet = ensureSheetStructure(
+    SHEET_NAMES && SHEET_NAMES.ITEMS ? SHEET_NAMES.ITEMS : 'Items',
+    headers
+  );
+
   const headerRange = sheet.getRange(1, 1, 1, headers.length);
   headerRange.setBackground('#34a853');
   headerRange.setFontColor('white');
   headerRange.setFontWeight('bold');
-  
+
   sheet.setColumnWidth(1, 120);
   sheet.setColumnWidth(2, 80);
   sheet.setColumnWidth(3, 250);
@@ -311,31 +407,25 @@ function crearHojaItems(ss) {
 }
 
 function crearHojaFirmantes(ss) {
-  let sheet = ss.getSheetByName('Firmantes');
-  if (sheet) {
-    ss.deleteSheet(sheet);
-  }
-  
-  sheet = ss.insertSheet('Firmantes');
-  
   const headers = [
-    'Código Certificación', // A
-    'Orden', // B
-    'Nombre', // C
-    'Cargo', // D
-    'Obligatorio', // E
-    'Fecha Creación', // F
-    'Creado Por' // G
+    'Código Certificación',
+    'Orden',
+    'Nombre',
+    'Cargo',
+    'Obligatorio',
+    'Fecha Creación',
+    'Creado Por'
   ];
-  
-  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-  
-  // Formatear encabezados
+  const sheet = ensureSheetStructure(
+    SHEET_NAMES && SHEET_NAMES.FIRMANTES ? SHEET_NAMES.FIRMANTES : 'Firmantes',
+    headers
+  );
+
   const headerRange = sheet.getRange(1, 1, 1, headers.length);
   headerRange.setBackground('#ff9800');
   headerRange.setFontColor('white');
   headerRange.setFontWeight('bold');
-  
+
   sheet.setColumnWidth(1, 120);
   sheet.setColumnWidth(2, 80);
   sheet.setColumnWidth(3, 180);
@@ -352,110 +442,85 @@ function crearHojaFirmantes(ss) {
 // ===============================================
 
 function crearHojaCatalogoIniciativas(ss) {
-  let sheet = ss.getSheetByName('Cat_Iniciativas');
-  if (sheet) {
-    ss.deleteSheet(sheet);
-  }
-  
-  sheet = ss.insertSheet('Cat_Iniciativas');
-  
   const headers = ['Código', 'Nombre', 'Descripción', 'Activo'];
-  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-  
-  // Formatear encabezados
+  const sheet = ensureSheetStructure(
+    SHEET_NAMES && SHEET_NAMES.CATALOGO_INICIATIVAS ? SHEET_NAMES.CATALOGO_INICIATIVAS : 'Cat_Iniciativas',
+    headers
+  );
+
   const headerRange = sheet.getRange(1, 1, 1, headers.length);
   headerRange.setBackground('#9c27b0');
   headerRange.setFontColor('white');
   headerRange.setFontWeight('bold');
-  
+
   sheet.setFrozenRows(1);
-  
+
   Logger.log('Hoja de Catálogo Iniciativas creada');
 }
 
 function crearHojaCatalogoTipos(ss) {
-  let sheet = ss.getSheetByName('Cat_Tipos');
-  if (sheet) {
-    ss.deleteSheet(sheet);
-  }
-  
-  sheet = ss.insertSheet('Cat_Tipos');
-  
   const headers = ['Código', 'Nombre', 'Descripción', 'Activo'];
-  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-  
-  // Formatear encabezados
+  const sheet = ensureSheetStructure(
+    SHEET_NAMES && SHEET_NAMES.CATALOGO_TIPOS ? SHEET_NAMES.CATALOGO_TIPOS : 'Cat_Tipos',
+    headers
+  );
+
   const headerRange = sheet.getRange(1, 1, 1, headers.length);
   headerRange.setBackground('#9c27b0');
   headerRange.setFontColor('white');
   headerRange.setFontWeight('bold');
-  
+
   sheet.setFrozenRows(1);
-  
+
   Logger.log('Hoja de Catálogo Tipos creada');
 }
 
 function crearHojaCatalogoFuentes(ss) {
-  let sheet = ss.getSheetByName('Cat_Fuentes');
-  if (sheet) {
-    ss.deleteSheet(sheet);
-  }
-  
-  sheet = ss.insertSheet('Cat_Fuentes');
-  
   const headers = ['Código', 'Nombre', 'Descripción', 'Activo'];
-  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-  
-  // Formatear encabezados
+  const sheet = ensureSheetStructure(
+    SHEET_NAMES && SHEET_NAMES.CATALOGO_FUENTES ? SHEET_NAMES.CATALOGO_FUENTES : 'Cat_Fuentes',
+    headers
+  );
+
   const headerRange = sheet.getRange(1, 1, 1, headers.length);
   headerRange.setBackground('#9c27b0');
   headerRange.setFontColor('white');
   headerRange.setFontWeight('bold');
-  
+
   sheet.setFrozenRows(1);
   
   Logger.log('Hoja de Catálogo Fuentes creada');
 }
 
 function crearHojaCatalogoFinalidades(ss) {
-  let sheet = ss.getSheetByName('Cat_Finalidades');
-  if (sheet) {
-    ss.deleteSheet(sheet);
-  }
-  
-  sheet = ss.insertSheet('Cat_Finalidades');
-  
   const headers = ['Código', 'Nombre', 'Descripción', 'Activo'];
-  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-  
-  // Formatear encabezados
+  const sheet = ensureSheetStructure(
+    SHEET_NAMES && SHEET_NAMES.CATALOGO_FINALIDADES ? SHEET_NAMES.CATALOGO_FINALIDADES : 'Cat_Finalidades',
+    headers
+  );
+
   const headerRange = sheet.getRange(1, 1, 1, headers.length);
   headerRange.setBackground('#9c27b0');
   headerRange.setFontColor('white');
   headerRange.setFontWeight('bold');
-  
+
   sheet.setFrozenRows(1);
-  
+
   Logger.log('Hoja de Catálogo Finalidades creada');
 }
 
 function crearHojaCatalogoOficinas(ss) {
-  let sheet = ss.getSheetByName('Cat_Oficinas');
-  if (sheet) {
-    ss.deleteSheet(sheet);
-  }
-  
-  sheet = ss.insertSheet('Cat_Oficinas');
-  
   const headers = ['Código', 'Nombre', 'Descripción', 'Activo'];
-  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-  
-  // Formatear encabezados
+  const sheet = ensureSheetStructure(
+    SHEET_NAMES && SHEET_NAMES.CATALOGO_OFICINAS ? SHEET_NAMES.CATALOGO_OFICINAS : 'Cat_Oficinas',
+    headers
+  );
+
   const headerRange = sheet.getRange(1, 1, 1, headers.length);
   headerRange.setBackground('#9c27b0');
   headerRange.setFontColor('white');
   headerRange.setFontWeight('bold');
-  
+
   sheet.setFrozenRows(1);
   
   Logger.log('Hoja de Catálogo Oficinas creada');
@@ -478,46 +543,33 @@ function crearHojaPlantillas(ss) {
 }
 
 function crearHojaUsuarios(ss) {
-  let sheet = ss.getSheetByName('Usuarios');
-  if (sheet) {
-    ss.deleteSheet(sheet);
-  }
-  
-  sheet = ss.insertSheet('Usuarios');
-  
   const headers = ['Email', 'Nombre', 'Rol', 'Oficina', 'Activo', 'Fecha Creación'];
-  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-  
-  // Formatear encabezados
+  const sheet = ensureSheetStructure('Usuarios', headers);
+
   const headerRange = sheet.getRange(1, 1, 1, headers.length);
   headerRange.setBackground('#607d8b');
   headerRange.setFontColor('white');
   headerRange.setFontWeight('bold');
-  
+
   sheet.setFrozenRows(1);
-  
+
   Logger.log('Hoja de Usuarios creada');
 }
 
 function crearHojaBitacora(ss) {
-  let sheet = ss.getSheetByName('Bitacora');
-  if (sheet) {
-    ss.deleteSheet(sheet);
-  }
-  
-  sheet = ss.insertSheet('Bitacora');
-  
   const headers = ['Fecha', 'Usuario', 'Acción', 'Detalles', 'Usuario Completo'];
-  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-  
-  // Formatear encabezados
+  const sheet = ensureSheetStructure(
+    SHEET_NAMES && SHEET_NAMES.BITACORA ? SHEET_NAMES.BITACORA : 'Bitacora',
+    headers
+  );
+
   const headerRange = sheet.getRange(1, 1, 1, headers.length);
   headerRange.setBackground('#795548');
   headerRange.setFontColor('white');
   headerRange.setFontWeight('bold');
-  
+
   sheet.setFrozenRows(1);
-  
+
   Logger.log('Hoja de Bitácora creada');
 }
 
@@ -541,6 +593,10 @@ function crearConfiguracionEjemplo() {
   // Configuración General
   const sheetConfigGeneral = ss.getSheetByName('Config_General');
   if (sheetConfigGeneral) {
+    if (sheetConfigGeneral.getLastRow() > 1) {
+      sheetConfigGeneral.getRange(2, 1, sheetConfigGeneral.getLastRow() - 1, sheetConfigGeneral.getLastColumn()).clearContent();
+    }
+
     const configuracionGeneral = [
       ['disposicion_base_legal', 'Directiva 003-2023-SG/CARITASLIMA, Directiva de contratación de bienes y servicios de la Vicaría de Pastoral Social y Dignidad Humana - Caritas Lima'],
       ['codigo_formato', 'CP-{YEAR}-{NUMBER}'],
@@ -566,9 +622,10 @@ function crearConfiguracionEjemplo() {
   const sheetFirmantes = ss.getSheetByName('Config_Firmantes');
   if (sheetFirmantes) {
     const firmantes = [
-      ['FIR001', 'Evelyn Elena Huaycacllo Marin', 'Jefa de la Oficina de Política, Planeamiento y Presupuesto', 1, true],
-      ['FIR002', 'Padre Miguel Ángel Castillo Seminario', 'Director Ejecutivo', 2, true],
-      ['FIR003', 'Carlos Alberto Ruiz Mendoza', 'Coordinador General', 3, true]
+      ['FIR_EVELYN', 'Evelyn Elena Huaycacllo Marin', 'Jefa de la Oficina de Política, Planeamiento y Presupuesto', 1, true],
+      ['FIR_JORGE', 'Jorge Herrera', 'Director Ejecutivo', 1, true],
+      ['FIR_SUSANA', 'Susana Palomino', 'Coordinadora de Planeamiento y Presupuesto', 1, true],
+      ['FIR_OTRO', 'Equipo Designado', 'Responsable según tipo de certificación', 1, true]
     ];
     sheetFirmantes.getRange(2, 1, firmantes.length, 5).setValues(firmantes);
   }
@@ -581,6 +638,9 @@ function crearCatalogosEjemplo() {
   
   // Iniciativas específicas de Cáritas
   const sheetIniciativas = ss.getSheetByName('Cat_Iniciativas');
+  if (sheetIniciativas.getLastRow() > 1) {
+    sheetIniciativas.getRange(2, 1, sheetIniciativas.getLastRow() - 1, sheetIniciativas.getLastColumn()).clearContent();
+  }
   const iniciativas = [
     ['INI001', 'Provisión de Alimentos para los Servicios de Alimentación Comunitaria', 'Programa de alimentación para comunidades vulnerables', true],
     ['INI002', 'Fortalecimiento Institucional y apoyo para la formalización', 'Mejoras en capacidad operativa institucional', true],
@@ -592,6 +652,9 @@ function crearCatalogosEjemplo() {
   
   // Tipos
   const sheetTipos = ss.getSheetByName('Cat_Tipos');
+  if (sheetTipos.getLastRow() > 1) {
+    sheetTipos.getRange(2, 1, sheetTipos.getLastRow() - 1, sheetTipos.getLastColumn()).clearContent();
+  }
   const tipos = [
     ['TIP001', 'Bienes', 'Adquisición de productos y materiales', true],
     ['TIP002', 'Servicios', 'Contratación de servicios profesionales', true],
@@ -602,6 +665,9 @@ function crearCatalogosEjemplo() {
   
   // Fuentes específicas de Cáritas
   const sheetFuentes = ss.getSheetByName('Cat_Fuentes');
+  if (sheetFuentes.getLastRow() > 1) {
+    sheetFuentes.getRange(2, 1, sheetFuentes.getLastRow() - 1, sheetFuentes.getLastColumn()).clearContent();
+  }
   const fuentes = [
     ['FUE001', 'Otros Gastos', 'Recursos propios de la institución', true],
     ['FUE002', 'Donaciones Internacionales', 'Fondos de cooperación internacional', true],
@@ -612,6 +678,9 @@ function crearCatalogosEjemplo() {
   
   // Finalidades
   const sheetFinalidades = ss.getSheetByName('Cat_Finalidades');
+  if (sheetFinalidades.getLastRow() > 1) {
+    sheetFinalidades.getRange(2, 1, sheetFinalidades.getLastRow() - 1, sheetFinalidades.getLastColumn()).clearContent();
+  }
   const finalidades = [
     ['FIN001', 'Administración y Gestión', 'Gastos administrativos y de gestión', true],
     ['FIN002', 'Programas Sociales', 'Actividades de asistencia social', true],
@@ -623,6 +692,9 @@ function crearCatalogosEjemplo() {
   
   // Oficinas específicas de Cáritas
   const sheetOficinas = ss.getSheetByName('Cat_Oficinas');
+  if (sheetOficinas.getLastRow() > 1) {
+    sheetOficinas.getRange(2, 1, sheetOficinas.getLastRow() - 1, sheetOficinas.getLastColumn()).clearContent();
+  }
   const oficinas = [
     ['OFI001', 'Oficina de Administración', 'Área administrativa general', true],
     ['OFI002', 'Oficina de Política, Planeamiento y Presupuesto', 'Área de planificación y presupuesto', true],
@@ -904,12 +976,10 @@ function crearConfiguracionEjemplo() {
   // Solicitantes ACTUALIZADOS
   const sheetSolicitantes = ss.getSheetByName('Config_Solicitantes');
   if (sheetSolicitantes) {
-    // Limpiar datos existentes
-    const dataRange = sheetSolicitantes.getDataRange();
-    if (dataRange.getNumRows() > 1) {
-      sheetSolicitantes.deleteRows(2, dataRange.getNumRows() - 1);
+    if (sheetSolicitantes.getLastRow() > 1) {
+      sheetSolicitantes.getRange(2, 1, sheetSolicitantes.getLastRow() - 1, sheetSolicitantes.getLastColumn()).clearContent();
     }
-    
+
     const solicitantes = [
       ['SOL001', 'Evelyn Elena Huaycacllo Marin', 'Jefa de la Oficina de Política, Planeamiento y Presupuesto', 'evelyn.huaycacllo@caritaslima.org', true],
       ['SOL002', 'Guadalupe Susana Callupe Pacheco', 'Coordinadora de Logística', 'guadalupe.callupe@caritaslima.org', true],
@@ -922,12 +992,10 @@ function crearConfiguracionEjemplo() {
   // Firmantes ACTUALIZADOS
   const sheetFirmantes = ss.getSheetByName('Config_Firmantes');
   if (sheetFirmantes) {
-    // Limpiar datos existentes
-    const dataRange = sheetFirmantes.getDataRange();
-    if (dataRange.getNumRows() > 1) {
-      sheetFirmantes.deleteRows(2, dataRange.getNumRows() - 1);
+    if (sheetFirmantes.getLastRow() > 1) {
+      sheetFirmantes.getRange(2, 1, sheetFirmantes.getLastRow() - 1, sheetFirmantes.getLastColumn()).clearContent();
     }
-    
+
     const firmantes = [
       ['FIR001', 'Evelyn Travezaño', 'Directora de Administración y Finanzas', 1, true],
       ['FIR002', 'Jorge Herrera', 'Director Ejecutivo', 2, true],
