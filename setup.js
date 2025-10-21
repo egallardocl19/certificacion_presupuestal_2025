@@ -6,7 +6,9 @@
 function configurarSistema() {
   try {
     Logger.log('Iniciando configuración del sistema...');
-    
+
+    asegurarPropiedadesDeScript();
+
     // Crear estructura de hojas
     crearEstructuraHojas();
     
@@ -19,6 +21,46 @@ function configurarSistema() {
     Logger.log('Error en configurarSistema: ' + error.toString());
     return { success: false, error: error.toString() };
   }
+}
+
+const getSetupDefaultFinalidadDetalladaAliases = (() => {
+  const defaults = Object.freeze([
+    'finalidad detallada',
+    'finalidad detallada / justificación',
+    'finalidad detallada / justificacion',
+    'finalidad (detalle)',
+    'detalle de la finalidad',
+    'detalle finalidad',
+    'justificación',
+    'justificacion'
+  ]);
+  return () => defaults;
+})();
+
+function asegurarPropiedadesDeScript() {
+  const properties = PropertiesService.getScriptProperties();
+  if (!properties) {
+    Logger.log('No se pudo acceder a las propiedades del script para inicializar alias de finalidad detallada.');
+    return;
+  }
+
+  try {
+    const raw = properties.getProperty('FINALIDAD_DETALLADA_ALIASES');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return;
+      }
+    }
+  } catch (error) {
+    Logger.log('Alias de finalidad detallada inválidos, se restablecerán a los valores por defecto: ' + error.toString());
+  }
+
+  properties.setProperty(
+    'FINALIDAD_DETALLADA_ALIASES',
+    JSON.stringify(getSetupDefaultFinalidadDetalladaAliases())
+  );
+  Logger.log('Alias de finalidad detallada inicializados en las propiedades del script.');
 }
 
 function crearEstructuraHojas() {
@@ -158,12 +200,10 @@ function crearHojaConfigGeneral(ss) {
 
 function crearHojaCertificaciones(ss) {
   let sheet = ss.getSheetByName('Certificaciones');
-  if (sheet) {
-    ss.deleteSheet(sheet);
+  if (!sheet) {
+    sheet = ss.insertSheet('Certificaciones');
   }
-  
-  sheet = ss.insertSheet('Certificaciones');
-  
+
   const headers = [
     'Código', // A
     'Fecha Emisión', // B - PERMITIR MODIFICAR
@@ -194,9 +234,10 @@ function crearHojaCertificaciones(ss) {
     'URL PDF', // AA
     'Finalidad Detallada' // AB
   ];
-  
+
+  asegurarColumnasMinimas(sheet, headers.length);
   sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-  
+
   // Formatear encabezados
   const headerRange = sheet.getRange(1, 1, 1, headers.length);
   headerRange.setBackground('#019952');
@@ -215,10 +256,17 @@ function crearHojaCertificaciones(ss) {
   sheet.setColumnWidth(8, 120); // Oficina
   sheet.setColumnWidth(9, 150); // Solicitante
   sheet.setColumnWidth(10, 120); // Cargo Solicitante
-  
+
   sheet.setFrozenRows(1);
-  
-  Logger.log('Hoja de Certificaciones creada');
+
+  Logger.log('Hoja de Certificaciones actualizada');
+}
+
+function asegurarColumnasMinimas(sheet, cantidadColumnas) {
+  const columnasActuales = sheet.getMaxColumns();
+  if (columnasActuales < cantidadColumnas) {
+    sheet.insertColumnsAfter(columnasActuales, cantidadColumnas - columnasActuales);
+  }
 }
 
 function crearHojaItems(ss) {
@@ -643,7 +691,8 @@ function crearCertificacionesEjemplo() {
     solicitante: 'Guadalupe Susana Callupe Pacheco',
     cargoSolicitante: 'Coordinadora de Logística',
     emailSolicitante: 'guadalupe.callupe@caritaslima.org',
-    finalidad: 'Se requiere complementar los kits de ollas con productos alimentarios básicos para completar la canasta alimentaria destinada a familias en situación de vulnerabilidad. Esta adquisición permitirá brindar una asistencia alimentaria más integral a los beneficiarios de nuestros programas sociales.',
+    finalidad: 'Complementar con productos alimentarios la conformación de los kits de ollas para atender a familias en situación de vulnerabilidad, garantizando una asistencia oportuna y completa.',
+    finalidadDetallada: 'Complementar con productos alimentarios la conformación de los kits de ollas para atender a familias en situación de vulnerabilidad, garantizando una asistencia oportuna y completa.',
     items: [
       {
         descripcion: 'Adquisición de productos adicionales para completar los kits de ollas (AZÚCAR CARTAVIO RUBIA GRANEL y ACEITE VEGA BOTELLA)',

@@ -41,9 +41,12 @@
         }
 
         .logo {
-            width: 80px;
-            height: 80px;
+            max-height: 68px;
+            max-width: 180px;
+            width: auto;
+            height: auto;
             border-radius: 10px;
+            object-fit: contain;
         }
 
         .header-text h1 {
@@ -347,6 +350,12 @@
             border-left-color: #17a2b8;
         }
 
+        .alert-warning {
+            background: #fff3cd;
+            color: #856404;
+            border-left-color: #ffc107;
+        }
+
         .loading {
             display: none;
             text-align: center;
@@ -399,15 +408,29 @@
             line-height: 1;
         }
 
-        .ai-button {
-            background: linear-gradient(135deg, #9c27b0, #7b1fa2);
-            color: white;
-            border: none;
-            padding: 8px 15px;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 12px;
-            margin-left: 10px;
+        .finalidad-ayuda {
+            margin-bottom: 15px;
+            color: #4a4a4a;
+            font-size: 0.95rem;
+        }
+
+        .finalidad-editor textarea {
+            min-height: 140px;
+            font-size: 15px;
+            line-height: 1.5;
+        }
+
+        .finalidad-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 12px;
+        }
+
+        .finalidad-hint {
+            font-size: 0.9rem;
+            color: #666;
+            margin-top: 6px;
         }
 
         .multiple-cert-container {
@@ -480,16 +503,6 @@
             border-top: 1px solid #eee;
         }
 
-        .finalidad-preview {
-            background: rgba(1, 153, 82, 0.1);
-            border: 1px solid rgba(1, 153, 82, 0.2);
-            padding: 10px 15px;
-            border-radius: 5px;
-            margin-top: 10px;
-            font-style: italic;
-            color: #019952;
-        }
-
         .info-badge {
             display: inline-block;
             background: rgba(23, 162, 184, 0.1);
@@ -499,6 +512,12 @@
             font-size: 12px;
             font-weight: 500;
             margin-left: 10px;
+        }
+
+        .info-text {
+            font-size: 13px;
+            color: #4a4a4a;
+            margin-bottom: 12px;
         }
     </style>
 </head>
@@ -521,7 +540,7 @@
         <!-- Loading -->
         <div id="loading" class="loading">
             <div class="spinner"></div>
-            <div>Cargando...</div>
+            <div class="loading-message">Cargando...</div>
         </div>
 
         <!-- Navigation Tabs -->
@@ -654,12 +673,7 @@
 
                     <div class="form-group">
                         <label for="descripcion">📝 Descripción *</label>
-                        <textarea id="descripcion" name="descripcion" placeholder="Descripción detallada de la certificación (ej: Adquisición de productos adicionales para completar los kits de ollas...)" required onchange="generarFinalizadPreview()"></textarea>
-                    </div>
-                    
-                    <!-- Vista previa de finalidad automática -->
-                    <div id="finalidadPreview" class="finalidad-preview" style="display: none;">
-                        <strong>Finalidad automática:</strong> <span id="finalidadTexto"></span>
+                        <textarea id="descripcion" name="descripcion" placeholder="Descripción detallada de la certificación (ej: Adquisición de productos adicionales para completar los kits de ollas...)" required></textarea>
                     </div>
 
                     <div class="form-grid">
@@ -706,16 +720,6 @@
                     </div>
                 </div>
 
-                <!-- Finalidad con AI -->
-                <div class="config-section">
-                    <h3 style="color: #019952;">📄 Finalidad</h3>
-                    <div class="form-group" style="position: relative;">
-                        <label for="finalidad">Finalidad</label>
-                        <textarea id="finalidad" name="finalidad" placeholder="Finalidad o propósito específico del gasto..." rows="5"></textarea>
-                        <button type="button" class="ai-button" onclick="generarFinalidadConIA()">🤖 Generar con IA</button>
-                    </div>
-                </div>
-
                 <!-- Ítems -->
                 <div class="config-section">
                     <h3 style="color: #019952;">🛒 Ítems de la Certificación</h3>
@@ -742,6 +746,21 @@
                     </div>
                     <div id="firmantesContainer">
                         <!-- Los firmantes se cargarán automáticamente -->
+                    </div>
+                </div>
+
+                <!-- Finalidad -->
+                <div class="config-section">
+                    <h3 style="color: #019952;">🎯 Finalidad de la certificación</h3>
+                    <p class="finalidad-ayuda">La finalidad se genera automáticamente con la información ingresada. Puedes editarla libremente o utilizar los botones para regenerarla o mejorarla con IA.</p>
+                    <div class="form-group finalidad-editor">
+                        <label for="finalidad">Finalidad</label>
+                        <textarea id="finalidad" name="finalidad" placeholder="La finalidad se completará automáticamente en base a la descripción, iniciativa y otros datos."></textarea>
+                        <div class="finalidad-actions">
+                            <button type="button" class="btn btn-secondary" onclick="regenerarFinalidadAutomatica()">🔁 Regenerar finalidad</button>
+                            <button type="button" class="btn btn-info" onclick="generarFinalidadConIA()">🤖 Mejorar con IA</button>
+                        </div>
+                        <div class="finalidad-hint">Cuando modifiques este texto manualmente, dejaremos de actualizarlo automáticamente hasta que solicites regenerarlo.</div>
                     </div>
                 </div>
 
@@ -878,6 +897,9 @@
         let contadorItems = 0;
         let contadorFirmantes = 0;
         let contadorMultiples = 0;
+        let finalidadEditadaManual = false;
+        let ultimaFinalidadGenerada = '';
+        let temporizadorFinalidad = null;
 
         // Inicialización
         document.addEventListener('DOMContentLoaded', function() {
@@ -908,12 +930,34 @@
                 guardarNuevaCertificacion();
             });
 
+            const campoFinalidad = document.getElementById('finalidad');
+            if (campoFinalidad) {
+                campoFinalidad.addEventListener('input', () => {
+                    const valor = campoFinalidad.value.trim();
+                    finalidadEditadaManual = valor !== '' && valor !== ultimaFinalidadGenerada;
+                });
+            }
+
+            const descripcionField = document.getElementById('descripcion');
+            if (descripcionField) {
+                descripcionField.addEventListener('input', () => programarActualizacionFinalidad());
+                descripcionField.addEventListener('blur', () => programarActualizacionFinalidad());
+            }
+
+            ['iniciativa', 'tipo', 'fuente', 'oficina'].forEach(id => {
+                const elemento = document.getElementById(id);
+                if (!elemento) return;
+                elemento.addEventListener('change', () => programarActualizacionFinalidad());
+            });
+
             // Eventos de filtros
             document.getElementById('searchText').addEventListener('input', debounce(aplicarFiltros, 300));
-            
+
             // Establecer fecha actual por defecto
             document.getElementById('fechaCertificacion').value = new Date().toISOString().split('T')[0];
             document.getElementById('baseFechaCertificacion').value = new Date().toISOString().split('T')[0];
+
+            programarActualizacionFinalidad(true);
         }
 
         // Función debounce para optimizar búsquedas
@@ -932,25 +976,27 @@
         // Inicializar aplicación
         function inicializarApp() {
             mostrarLoading(true, 'Cargando sistema...');
-            
+
             Promise.all([
                 cargarCatalogos(),
                 cargarCertificaciones(),
                 cargarEstadisticasDashboard(),
-                cargarConfiguracion()
+                cargarConfiguracionInicial()
             ]).then(() => {
-                mostrarLoading(false);
                 mostrarAlerta('Sistema cargado correctamente', 'success');
                 console.log('Sistema cargado exitosamente');
             }).catch(error => {
-                mostrarLoading(false);
                 mostrarAlerta('Error al cargar el sistema: ' + error.message, 'error');
                 console.error('Error cargando sistema:', error);
+            }).finally(() => {
+                cargarTablaCertificaciones();
+                cargarTablaCertificacionesRecientes();
+                mostrarLoading(false);
             });
         }
 
         // Cargar configuración
-        function cargarConfiguracion() {
+        function cargarConfiguracionInicial() {
             return new Promise((resolve, reject) => {
                 google.script.run
                     .withSuccessHandler(data => {
@@ -1007,11 +1053,14 @@
                     .withSuccessHandler(data => {
                         certificaciones = data || [];
                         console.log('Certificaciones cargadas:', certificaciones.length);
+                        cargarTablaCertificaciones();
+                        cargarTablaCertificacionesRecientes();
                         resolve();
                     })
                     .withFailureHandler(error => {
                         console.error('Error cargando certificaciones:', error);
                         certificaciones = [];
+                        cargarTablaCertificaciones();
                         reject(error);
                     })
                     .obtenerCertificaciones();
@@ -1185,6 +1234,10 @@
                 if (valorActual) select.value = valorActual;
             });
 
+            if (!finalidadEditadaManual || !document.getElementById('finalidad').value.trim()) {
+                programarActualizacionFinalidad(true);
+            }
+
             console.log('Selectores llenados con catálogos');
         }
 
@@ -1235,7 +1288,7 @@
             const selectedTab = document.querySelector(`[data-config="${configId}"]`);
             if (selectedTab) {
                 selectedTab.classList.add('active');
-                cargarConfiguracion(configId);
+                renderConfiguracion(configId);
             }
         }
 
@@ -1260,40 +1313,115 @@
             }
         }
 
-        // Generar vista previa de finalidad automática
-        function generarFinalizadPreview() {
-            const descripcion = document.getElementById('descripcion').value;
-            const preview = document.getElementById('finalidadPreview');
-            const texto = document.getElementById('finalidadTexto');
+        function programarActualizacionFinalidad(forzar = false) {
+            if (temporizadorFinalidad) {
+                clearTimeout(temporizadorFinalidad);
+            }
 
+            temporizadorFinalidad = setTimeout(() => {
+                actualizarFinalidadAutomatica({ forzar });
+            }, 180);
+        }
+
+        function regenerarFinalidadAutomatica() {
+            finalidadEditadaManual = false;
+            actualizarFinalidadAutomatica({ forzar: true });
+            const campoFinalidad = document.getElementById('finalidad');
+            if (campoFinalidad && campoFinalidad.value.trim()) {
+                mostrarAlerta('Finalidad generada nuevamente con la información actual.', 'info');
+            } else {
+                mostrarAlerta('Completa la descripción y los datos clave para generar la finalidad automática.', 'warning');
+            }
+        }
+
+        function obtenerFinalidadAutomatica() {
+            const descripcion = (document.getElementById('descripcion')?.value || '').trim();
             if (!descripcion) {
-                preview.style.display = 'none';
+                return '';
+            }
+
+            const desc = descripcion.toLowerCase();
+            let finalidad = 'Atender oportunamente las necesidades operativas de Cáritas Lima';
+
+            if (desc.includes('adquisic') || desc.includes('compra') || desc.includes('producto') || desc.includes('material')) {
+                if (desc.includes('alimento') || desc.includes('kit') || desc.includes('olla') || desc.includes('víveres')) {
+                    finalidad = 'Complementar con recursos adicionales la conformación de kits alimentarios para la atención de familias vulnerables';
+                } else if (desc.includes('oficina') || desc.includes('administrativ') || desc.includes('equipo') || desc.includes('mueble')) {
+                    finalidad = 'Fortalecer la capacidad operativa administrativa de la institución mediante la provisión de bienes esenciales';
+                } else {
+                    finalidad = 'Complementar las operaciones institucionales con la adquisición de insumos y materiales necesarios';
+                }
+            } else if (desc.includes('servicio') || desc.includes('consultor') || desc.includes('capacitación') || desc.includes('formación')) {
+                if (desc.includes('capacitación') || desc.includes('formación')) {
+                    finalidad = 'Fortalecer las capacidades del personal para mejorar la atención a beneficiarios y aliados estratégicos';
+                } else {
+                    finalidad = 'Mejorar la calidad de los servicios brindados a la comunidad a través de la contratación especializada correspondiente';
+                }
+            }
+
+            const detalles = [];
+            const iniciativaNombre = obtenerNombreCatalogo('iniciativas', document.getElementById('iniciativa')?.value);
+            const tipoNombre = obtenerNombreCatalogo('tipos', document.getElementById('tipo')?.value);
+            const fuenteNombre = obtenerNombreCatalogo('fuentes', document.getElementById('fuente')?.value);
+            const oficinaNombre = obtenerNombreCatalogo('oficinas', document.getElementById('oficina')?.value);
+            const totalTexto = document.getElementById('totalMonto')?.textContent || '0';
+            const totalNumerico = Number(totalTexto.replace(/[^0-9.]/g, ''));
+
+            if (tipoNombre) {
+                detalles.push(`correspondiente al tipo ${tipoNombre}`);
+            }
+            if (iniciativaNombre) {
+                detalles.push(`en el marco de la iniciativa ${iniciativaNombre}`);
+            }
+            if (oficinaNombre) {
+                detalles.push(`para la ${oficinaNombre}`);
+            }
+            if (fuenteNombre) {
+                detalles.push(`con cargo a ${fuenteNombre}`);
+            }
+            if (!Number.isNaN(totalNumerico) && totalNumerico > 0) {
+                detalles.push(`monto estimado: S/ ${totalNumerico.toLocaleString('es-PE', { minimumFractionDigits: 2 })}`);
+            }
+
+            if (detalles.length) {
+                finalidad += '. ' + detalles.join('; ');
+            }
+            if (!finalidad.endsWith('.')) {
+                finalidad += '.';
+            }
+
+            return finalidad;
+        }
+
+        function actualizarFinalidadAutomatica({ forzar = false } = {}) {
+            temporizadorFinalidad = null;
+            const campoFinalidad = document.getElementById('finalidad');
+            if (!campoFinalidad) return;
+
+            const finalidadGenerada = obtenerFinalidadAutomatica();
+            const valorActual = campoFinalidad.value.trim();
+
+            if (!finalidadGenerada) {
+                if (forzar || (!finalidadEditadaManual && valorActual)) {
+                    campoFinalidad.value = '';
+                    ultimaFinalidadGenerada = '';
+                }
+                if (!valorActual) {
+                    finalidadEditadaManual = false;
+                }
                 return;
             }
 
-            // Simular la lógica de finalidad automática del backend
-            let finalidad = 'Complementar las necesidades operativas para el cumplimiento de la misión institucional.';
-            
-            const desc = descripcion.toLowerCase();
-            
-            if (desc.includes('adquisic') || desc.includes('compra') || desc.includes('productos') || desc.includes('materiales')) {
-                if (desc.includes('alimento') || desc.includes('kit') || desc.includes('ollas') || desc.includes('víveres')) {
-                    finalidad = 'Complementar con productos adicionales la conformación de los kits de alimentos.';
-                } else if (desc.includes('oficina') || desc.includes('administrativ') || desc.includes('equipos')) {
-                    finalidad = 'Fortalecer la capacidad operativa administrativa de la institución.';
-                } else {
-                    finalidad = 'Complementar con productos adicionales las operaciones institucionales.';
-                }
-            } else if (desc.includes('servicio') || desc.includes('consultorí') || desc.includes('capacitación')) {
-                if (desc.includes('capacitación') || desc.includes('formación')) {
-                    finalidad = 'Fortalecer las capacidades del personal para mejorar la atención a beneficiarios.';
-                } else {
-                    finalidad = 'Mejorar la calidad de servicios brindados a la comunidad.';
-                }
+            if (
+                forzar ||
+                !finalidadEditadaManual ||
+                valorActual === '' ||
+                valorActual === ultimaFinalidadGenerada
+            ) {
+                campoFinalidad.value = finalidadGenerada;
+                ultimaFinalidadGenerada = finalidadGenerada;
+                finalidadEditadaManual = false;
             }
-
-            texto.textContent = finalidad;
-            preview.style.display = 'block';
         }
 
         // Cargar firmantes según cantidad seleccionada
@@ -1580,12 +1708,16 @@
                     console.error('Error convirtiendo a letras:', error);
                 })
                 .convertirNumeroALetras(total);
+
+            programarActualizacionFinalidad();
         }
 
         // Generar finalidad con IA
         function generarFinalidadConIA() {
+            const descripcion = document.getElementById('descripcion').value.trim();
+            const campoFinalidad = document.getElementById('finalidad');
             const datos = {
-                descripcion: document.getElementById('descripcion').value,
+                descripcion,
                 iniciativa: obtenerNombreCatalogo('iniciativas', document.getElementById('iniciativa').value),
                 tipo: obtenerNombreCatalogo('tipos', document.getElementById('tipo').value),
                 fuente: obtenerNombreCatalogo('fuentes', document.getElementById('fuente').value),
@@ -1593,26 +1725,39 @@
                 montoEstimado: document.getElementById('totalMonto').textContent.replace(',', '')
             };
 
-            if (!datos.descripcion) {
+            if (!descripcion) {
                 mostrarAlerta('Por favor, complete la descripción antes de generar la finalidad', 'error');
                 return;
             }
 
+            mostrarAlerta('Generando una finalidad sugerida con IA. Esto puede tardar unos segundos.', 'info');
             mostrarLoading(true, 'Generando finalidad con IA...');
 
             google.script.run
                 .withSuccessHandler(resultado => {
                     mostrarLoading(false);
-                    if (resultado.success) {
-                        document.getElementById('finalidad').value = resultado.finalidad;
+                    if (resultado.success && resultado.finalidad) {
+                        const textoFinalidad = resultado.finalidad.trim().endsWith('.') ? resultado.finalidad.trim() : `${resultado.finalidad.trim()}.`;
+                        campoFinalidad.value = textoFinalidad;
+                        ultimaFinalidadGenerada = textoFinalidad;
+                        finalidadEditadaManual = true;
                         mostrarAlerta('Finalidad generada exitosamente', 'success');
                     } else {
-                        mostrarAlerta('Error al generar finalidad: ' + resultado.error, 'error');
-                        document.getElementById('finalidad').value = resultado.finalidad || 'Error al generar finalidad automática. Por favor, elabore una finalidad manual.';
+                        const fallback = (resultado.finalidad || obtenerFinalidadAutomatica() || '').trim();
+                        campoFinalidad.value = fallback;
+                        ultimaFinalidadGenerada = fallback;
+                        finalidadEditadaManual = true;
+                        mostrarAlerta('No se pudo generar la finalidad automáticamente. Se sugirió un texto base.', 'warning');
                     }
                 })
                 .withFailureHandler(error => {
                     mostrarLoading(false);
+                    const fallback = (obtenerFinalidadAutomatica() || '').trim();
+                    if (fallback) {
+                        campoFinalidad.value = fallback;
+                    }
+                    ultimaFinalidadGenerada = campoFinalidad.value.trim();
+                    finalidadEditadaManual = true;
                     mostrarAlerta('Error de conexión al generar la finalidad: ' + error.message, 'error');
                 })
                 .generarFinalidadConIA(datos);
@@ -1622,22 +1767,29 @@
         function guardarNuevaCertificacion() {
             const form = document.getElementById('nuevaCertificacionForm');
             const formData = new FormData(form);
-            
+            const submitButton = form.querySelector('button[type="submit"]');
+
             // Recolectar datos del formulario
+            const fechaCertificacion = formData.get('fechaCertificacion');
+            const finalidadTexto = (formData.get('finalidad') || '').trim();
+
             const datos = {
-                fecha: formData.get('fechaCertificacion'),
+                fecha: fechaCertificacion,
+                fechaCertificacion,
                 descripcion: formData.get('descripcion'),
                 oficina: formData.get('oficina'),
                 iniciativa: formData.get('iniciativa'),
                 tipo: formData.get('tipo'),
                 fuente: formData.get('fuente'),
-                finalidad: formData.get('finalidad'),
+                finalidad: finalidadTexto,
+                finalidadDetallada: finalidadTexto,
                 items: [],
                 firmantes: []
             };
 
             // Obtener datos del solicitante seleccionado
             const solicitanteId = formData.get('solicitanteId');
+            datos.solicitanteId = solicitanteId;
             if (solicitanteId) {
                 const solicitante = catalogos.solicitantes.find(s => s.id === solicitanteId);
                 if (solicitante) {
@@ -1684,24 +1836,52 @@
                 return;
             }
 
+            const finalidadCalculada = (finalidadTexto || obtenerFinalidadAutomatica() || '').trim();
+            datos.finalidad = finalidadCalculada;
+            datos.finalidadDetallada = finalidadCalculada;
+
+            if (submitButton) {
+                submitButton.dataset.originalText = submitButton.dataset.originalText || submitButton.textContent;
+                submitButton.disabled = true;
+                submitButton.textContent = '⏳ Creando...';
+            }
+
+            mostrarAlerta('Creando certificación, por favor espere...', 'info');
             mostrarLoading(true, 'Creando certificación...');
 
             google.script.run
                 .withSuccessHandler(resultado => {
                     mostrarLoading(false);
+                    if (submitButton) {
+                        submitButton.disabled = false;
+                        submitButton.textContent = submitButton.dataset.originalText || '💾 Crear Certificación';
+                    }
                     if (resultado.success) {
                         mostrarAlerta(`Certificación creada exitosamente. Código: ${resultado.codigo}`, 'success');
                         limpiarFormulario();
-                        cargarCertificaciones().then(() => {
-                            cargarTablaCertificaciones();
-                            cargarEstadisticasDashboard();
-                        });
+                        cargarCertificaciones()
+                            .then(() => {
+                                cargarTablaCertificaciones();
+                                cargarTablaCertificacionesRecientes();
+                                cargarEstadisticasDashboard();
+                            })
+                            .catch(error => {
+                                console.error('No se pudieron recargar las certificaciones:', error);
+                                mostrarAlerta('La certificación se creó, pero no fue posible refrescar la lista automáticamente.', 'warning');
+                            })
+                            .finally(() => {
+                                cambiarTab('certificaciones');
+                            });
                     } else {
                         mostrarAlerta('Error al crear la certificación: ' + resultado.error, 'error');
                     }
                 })
                 .withFailureHandler(error => {
                     mostrarLoading(false);
+                    if (submitButton) {
+                        submitButton.disabled = false;
+                        submitButton.textContent = submitButton.dataset.originalText || '💾 Crear Certificación';
+                    }
                     mostrarAlerta('Error de conexión: ' + error.message, 'error');
                 })
                 .crearCertificacion(datos);
@@ -1714,14 +1894,16 @@
             document.getElementById('firmantesContainer').innerHTML = '';
             document.getElementById('totalMonto').textContent = '0.00';
             document.getElementById('montoLetras').textContent = '';
-            document.getElementById('finalidadPreview').style.display = 'none';
             document.getElementById('fechaCertificacion').value = new Date().toISOString().split('T')[0];
             contadorItems = 0;
-            
+            finalidadEditadaManual = false;
+            ultimaFinalidadGenerada = '';
+
             // Reinicializar
             setTimeout(() => {
                 agregarItem();
                 cargarFirmantes();
+                programarActualizacionFinalidad(true);
             }, 100);
         }
 
@@ -1757,14 +1939,20 @@
         // Funciones auxiliares
         function mostrarLoading(show, mensaje = 'Cargando...') {
             const loading = document.getElementById('loading');
+            if (!loading) return;
+
+            const mensajeElemento = loading.querySelector('.loading-message');
+            if (mensajeElemento) {
+                mensajeElemento.textContent = mensaje || 'Cargando...';
+            }
+
             if (show) {
                 loading.classList.add('show');
-                if (mensaje !== 'Cargando...') {
-                    loading.querySelector('div:last-child').textContent = mensaje;
-                }
             } else {
                 loading.classList.remove('show');
-                loading.querySelector('div:last-child').textContent = 'Cargando...';
+                if (mensajeElemento) {
+                    mensajeElemento.textContent = 'Cargando...';
+                }
             }
         }
 
@@ -1821,7 +2009,7 @@
         }
 
         // Funciones de configuración completas
-function cargarConfiguracion(tipo) {
+function renderConfiguracion(tipo) {
     const content = document.getElementById('configContent');
     
     switch(tipo) {
@@ -2102,7 +2290,7 @@ function guardarSolicitante() {
                 cancelarFormularioSolicitante();
                 // Recargar catálogos
                 cargarCatalogos().then(() => {
-                    cargarConfiguracion('solicitantes');
+                    renderConfiguracion('solicitantes');
                 });
             } else {
                 mostrarAlerta('Error al guardar solicitante: ' + resultado.error, 'error');
@@ -2133,7 +2321,7 @@ function eliminarSolicitante(id) {
                 mostrarAlerta('Solicitante eliminado exitosamente', 'success');
                 // Recargar catálogos
                 cargarCatalogos().then(() => {
-                    cargarConfiguracion('solicitantes');
+                    renderConfiguracion('solicitantes');
                 });
             } else {
                 mostrarAlerta('Error al eliminar solicitante: ' + resultado.error, 'error');
@@ -2204,7 +2392,7 @@ function guardarFirmante() {
                 cancelarFormularioFirmante();
                 // Recargar catálogos
                 cargarCatalogos().then(() => {
-                    cargarConfiguracion('firmantes');
+                    renderConfiguracion('firmantes');
                 });
             } else {
                 mostrarAlerta('Error al guardar firmante: ' + resultado.error, 'error');
@@ -2235,7 +2423,7 @@ function eliminarFirmante(id) {
                 mostrarAlerta('Firmante eliminado exitosamente', 'success');
                 // Recargar catálogos
                 cargarCatalogos().then(() => {
-                    cargarConfiguracion('firmantes');
+                    renderConfiguracion('firmantes');
                 });
             } else {
                 mostrarAlerta('Error al eliminar firmante: ' + resultado.error, 'error');
@@ -2264,7 +2452,9 @@ function guardarConfigGeneral() {
             if (resultado.success) {
                 mostrarAlerta('Configuración guardada exitosamente', 'success');
                 // Recargar configuración
-                cargarConfiguracion();
+                cargarConfiguracionInicial().then(() => {
+                    renderConfiguracion('general');
+                });
             } else {
                 mostrarAlerta('Error al guardar configuración: ' + resultado.error, 'error');
             }
