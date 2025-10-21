@@ -278,20 +278,31 @@ const ROLES = {
 // FUNCIONES PRINCIPALES DE LA APLICACIÓN WEB
 // ===============================================
 
-function doGet(e) {
-  return HtmlService.createTemplateFromFile('index')
-    .evaluate()
-    .setTitle('Sistema de Certificaciones Presupuestales - Cáritas Lima')
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-}
+    try {
+      return String(value)
+        .trim()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+    } catch (error) {
+      return String(value).trim().toLowerCase();
+    }
+  }
 
-function include(filename) {
-  return HtmlService.createHtmlOutputFromFile(filename).getContent();
-}
+  function normalizeString(value) {
+    if (value === null || value === undefined) {
+      return '';
+    }
+    return String(value).trim();
+  }
 
-// ===============================================
-// GESTIÓN DE CERTIFICACIONES
-// ===============================================
+  function toNumber(value) {
+    if (value === null || value === undefined || value === '') {
+      return 0;
+    }
+    const number = Number(value);
+    return Number.isFinite(number) ? number : 0;
+  }
 
 function crearCertificacion(datos) {
   try {
@@ -372,16 +383,11 @@ function crearCertificacion(datos) {
     Logger.log('Error en crearCertificacion: ' + error.toString());
     return { success: false, error: error.toString() };
   }
-}
-// ===============================================
-// GENERACIÓN DE DOCUMENTOS (FUNCIÓN PRINCIPAL)
-// ===============================================
 
-function generarDocumentoCertificacion(codigoCertificacion) {
-  try {
-    const certificacion = obtenerCertificacionPorCodigo(codigoCertificacion);
-    if (!certificacion) {
-      return { success: false, error: 'Certificación no encontrada' };
+  function formatDate(value, timezone) {
+    const date = toDate(value);
+    if (!date) {
+      return '';
     }
 
     // Crear documento básico que SIEMPRE funciona
@@ -545,27 +551,7 @@ function generarDocumentoCertificacion(codigoCertificacion) {
       urlDocumento: urlDocumento,
       urlPDF: urlPDF
     });
-    
-    Logger.log(`Certificado generado exitosamente: ${codigoCertificacion}`);
-    Logger.log(`URL Documento: ${urlDocumento}`);
-    Logger.log(`URL PDF: ${urlPDF}`);
-    
-    // Registrar actividad
-    registrarActividad('GENERAR_CERTIFICADO', `Código: ${codigoCertificacion}`);
-    
-    return {
-      success: true,
-      urlDocumento: urlDocumento,
-      urlPDF: urlPDF,
-      urlVistaPrevia: urlVistaPrevia,
-      documentoId: doc.getId(),
-      pdfId: pdf.getId()
-    };
-  } catch (error) {
-    Logger.log('Error en generarDocumentoCertificacion: ' + error.toString());
-    return { success: false, error: error.toString() };
   }
-}
 
 function obtenerCertificaciones(filtros = {}) {
   try {
@@ -611,26 +597,22 @@ function obtenerCertificaciones(filtros = {}) {
     Logger.log('Error en obtenerCertificaciones: ' + error.toString());
     throw new Error('No se pudieron obtener certificaciones: ' + error.message);
   }
-}
 
-function obtenerCertificacionPorCodigo(codigo) {
-  try {
-    const certificaciones = obtenerCertificaciones();
-    const certificacion = certificaciones.find(c => c.codigo === codigo);
-    
-    if (certificacion) {
-      // Obtener ítems
-      certificacion.items = obtenerItemsCertificacion(codigo);
-      // Obtener firmantes
-      certificacion.firmantes = obtenerFirmantesCertificacion(codigo);
-    }
-    
-    return certificacion;
-  } catch (error) {
-    Logger.log('Error en obtenerCertificacionPorCodigo: ' + error.toString());
-    return null;
+  function ensureBaseStructure() {
+    ensureSheet(SHEETS.CERTIFICACIONES, HEADERS.CERTIFICACIONES);
+    ensureSheet(SHEETS.ITEMS, HEADERS.ITEMS);
+    ensureSheet(SHEETS.FIRMANTES, HEADERS.FIRMANTES);
+    ensureSheet(SHEETS.CONFIG_SOLICITANTES, HEADERS.CATALOGOS);
+    ensureSheet(SHEETS.CONFIG_FIRMANTES, HEADERS.CATALOGOS);
+    ensureSheet(SHEETS.CONFIG_GENERAL, HEADERS.CONFIG_GENERAL);
+    ensureSheet(SHEETS.CATALOGO_INICIATIVAS, HEADERS.CATALOGOS);
+    ensureSheet(SHEETS.CATALOGO_TIPOS, HEADERS.CATALOGOS);
+    ensureSheet(SHEETS.CATALOGO_FUENTES, HEADERS.CATALOGOS);
+    ensureSheet(SHEETS.CATALOGO_FINALIDADES, HEADERS.CATALOGOS);
+    ensureSheet(SHEETS.CATALOGO_OFICINAS, HEADERS.CATALOGOS);
+    ensureSheet(SHEETS.PLANTILLAS, HEADERS.PLANTILLAS);
+    ensureSheet(SHEETS.BITACORA, HEADERS.BITACORA);
   }
-}
 
 function actualizarCertificacion(codigo, datos) {
   try {
@@ -713,9 +695,8 @@ function actualizarCertificacion(codigo, datos) {
   }
 }
 
-// ===============================================
-// FUNCIONES DE CONFIGURACIÓN
-// ===============================================
+    return { index: -1, row: null };
+  }
 
 function obtenerSolicitantes() {
   try {
@@ -744,17 +725,10 @@ function obtenerSolicitantes() {
     Logger.log('Error en obtenerSolicitantes: ' + error.toString());
     return [];
   }
-}
 
-function obtenerSolicitantePorId(id) {
-  try {
-    const solicitantes = obtenerSolicitantes();
-    return solicitantes.find(s => s.id === id) || null;
-  } catch (error) {
-    Logger.log('Error en obtenerSolicitantePorId: ' + error.toString());
-    return null;
+  function ensureFolder(id) {
+    return getFolderById(id);
   }
-}
 
 function obtenerConfiguracionGeneral() {
   try {
@@ -775,18 +749,33 @@ function obtenerConfiguracionGeneral() {
         config[row[0]] = row[1];
       }
     }
-    
-    return config;
-  } catch (error) {
-    Logger.log('Error en obtenerConfiguracionGeneral: ' + error.toString());
-    return {};
   }
-}
 
-function obtenerDisposicionPorDefecto() {
-  const config = obtenerConfiguracionGeneral();
-  return config.disposicion_base_legal || 'Directiva 003-2023-SG/CARITASLIMA, Directiva de contratación de bienes y servicios de la Vicaría de Pastoral Social y Dignidad Humana - Caritas Lima';
-}
+  namespace.Drive = Object.freeze({
+    getFolderById,
+    ensureFolder,
+    moveFileToFolder
+  });
+})(CP);
+
+// =============================================================
+// Repositorios de datos
+// =============================================================
+(function (namespace) {
+  const { SHEETS, HEADERS, DEFAULT_TEMPLATES } = namespace.Constants;
+  const { normalizeString, toBoolean, mapRowToObject } = namespace.Utils;
+  const { readTable, writeTable, appendRow, ensureSheet, findRow } = namespace.Sheets;
+
+  const CatalogRepository = {
+    ensureStructure: function () {
+      ensureSheet(SHEETS.CONFIG_SOLICITANTES, HEADERS.CATALOGOS);
+      ensureSheet(SHEETS.CONFIG_FIRMANTES, HEADERS.CATALOGOS);
+      ensureSheet(SHEETS.CATALOGO_INICIATIVAS, HEADERS.CATALOGOS);
+      ensureSheet(SHEETS.CATALOGO_TIPOS, HEADERS.CATALOGOS);
+      ensureSheet(SHEETS.CATALOGO_FUENTES, HEADERS.CATALOGOS);
+      ensureSheet(SHEETS.CATALOGO_FINALIDADES, HEADERS.CATALOGOS);
+      ensureSheet(SHEETS.CATALOGO_OFICINAS, HEADERS.CATALOGOS);
+    },
 
 function obtenerFirmantes() {
   try {
@@ -818,28 +807,75 @@ function obtenerFirmantes() {
   }
 }
 
-function obtenerFirmantePorDefecto() {
-  const firmantes = obtenerFirmantes();
-  const firmantePorDefecto = firmantes.find(f => f.orden === 1);
-  
-  if (firmantePorDefecto) {
-    return {
-      nombre: firmantePorDefecto.nombre,
-      cargo: firmantePorDefecto.cargo,
-      obligatorio: true
-    };
-  }
-  
-  return {
-    nombre: 'Evelyn Elena Huaycacllo Marin',
-    cargo: 'Jefa de la Oficina de Política, Planeamiento y Presupuesto',
-    obligatorio: true
-  };
-}
+    saveAll: function (sheetName, records) {
+      const headers = HEADERS.CATALOGOS;
+      const rows = records.map(function (record) {
+        return [
+          normalizeString(record.id),
+          normalizeString(record.nombre),
+          normalizeString(record.descripcion),
+          record.activo === false ? false : true,
+          normalizeString(record.extra1),
+          normalizeString(record.extra2)
+        ];
+      });
+      writeTable(sheetName, headers, rows);
+    },
 
-// ===============================================
-// GENERACIÓN DE FINALIDAD CON IA
-// ===============================================
+    upsert: function (sheetName, id, payload) {
+      const headers = HEADERS.CATALOGOS;
+      const result = findRow(sheetName, headers, 'ID', id);
+      const data = {
+        ID: id,
+        Nombre: payload.nombre || '',
+        Descripción: payload.descripcion || '',
+        Activo: payload.activo === false ? false : true,
+        'Extra 1': payload.extra1 || '',
+        'Extra 2': payload.extra2 || ''
+      };
+      if (result.index === -1) {
+        appendRow(sheetName, headers, data);
+      } else {
+        updateRow(sheetName, headers, result.index, data);
+      }
+      SpreadsheetApp.flush();
+      return { success: true };
+    },
+
+    remove: function (sheetName, id) {
+      const headers = HEADERS.CATALOGOS;
+      const result = findRow(sheetName, headers, 'ID', id);
+      if (result.index === -1) {
+        return { success: false, error: 'Registro no encontrado' };
+      }
+      const sheet = ensureSheet(sheetName, headers);
+      sheet.deleteRow(result.index);
+      SpreadsheetApp.flush();
+      return { success: true };
+    }
+  };
+
+  const PlantillaRepository = {
+    list: function () {
+      const table = readTable(SHEETS.PLANTILLAS);
+      if (!table.headers.length) {
+        return [];
+      }
+      return table.rows.map(function (row) {
+        const item = mapRowToObject(table.headers, row);
+        return {
+          id: normalizeString(item.ID || item.id),
+          nombre: normalizeString(item.Nombre || item.nombre),
+          descripcion: normalizeString(item.Descripción || item.descripcion),
+          activa: toBoolean(item.Activa || item.activa),
+          firmantes: Number(item.Firmantes || item.firmantes || 1),
+          plantillaHtml: normalizeString(item['Plantilla HTML'] || item.plantillaHtml),
+          firmanteId: normalizeString(item['Firmante ID'] || item.firmanteId),
+          firmanteNombre: normalizeString(item['Firmante Nombre'] || item.firmanteNombre),
+          firmanteCargo: normalizeString(item['Firmante Cargo'] || item.firmanteCargo)
+        };
+      });
+    },
 
 function generarFinalidadConIA(payload) {
   let descripcionTexto = '';
@@ -851,7 +887,14 @@ function generarFinalidadConIA(payload) {
         success: false,
         finalidad: 'Complementar necesidades operativas de la institución.'
       };
+      if (result.index === -1) {
+        appendRow(SHEETS.PLANTILLAS, headers, data);
+      } else {
+        updateRow(SHEETS.PLANTILLAS, headers, result.index, data);
+      }
+      SpreadsheetApp.flush();
     }
+  };
 
     const detalles = [];
     if (esObjeto) {
@@ -876,15 +919,23 @@ EJEMPLOS de finalidades correctas:
 - "Garantizar el traslado oportuno y seguro de las donaciones"
 - "Garantizar que las personas beneficiarias reciban una nutrición adecuada y oportuna"
 
-INSTRUCCIONES:
-1. La finalidad debe ser específica al tipo de gasto descrito
-2. Debe iniciar con un verbo (Complementar, Contar, Fortalecer, Garantizar, Mejorar, etc.)
-3. Debe explicar el propósito específico, no ser genérica
-4. Debe estar alineada con la misión social de Cáritas Lima
-5. Máximo 2 líneas de texto
-6. Sin puntuación final
+  const CertificacionRepository = {
+    listCertificaciones: function () {
+      const table = readTable(SHEETS.CERTIFICACIONES);
+      if (!table.headers.length) {
+        return [];
+      }
+      return table.rows.map(function (row) {
+        return mapRowToObject(table.headers, row);
+      });
+    },
 
-Responde SOLO con la finalidad, sin explicaciones adicionales.`;
+    listItems: function () {
+      const table = readTable(SHEETS.ITEMS);
+      return table.rows.map(function (row) {
+        return mapRowToObject(table.headers, row);
+      });
+    },
 
     const requestBody = {
       model: CONFIG.AI_MODEL,
@@ -937,39 +988,31 @@ Responde SOLO con la finalidad, sin explicaciones adicionales.`;
   }
 }
 
-function generarFinalidadAutomatica(descripcion) {
-  if (!descripcion) return 'Complementar necesidades operativas de la institución';
-  
-  const desc = descripcion.toLowerCase();
-  
-  if (desc.includes('kit') && (desc.includes('olla') || desc.includes('alimento'))) {
-    return 'Complementar con productos adicionales la conformación de los kits de ollas';
-  } else if (desc.includes('adquisic') && desc.includes('productos adicionales')) {
-    return 'Complementar con productos adicionales la conformación de los kits de ollas';
-  } else if (desc.includes('alimento') || desc.includes('nutrición') || desc.includes('comida')) {
-    return 'Garantizar que las personas beneficiarias de las actividades programadas reciban una nutrición adecuada y oportuna';
-  } else if (desc.includes('transporte') || desc.includes('traslado')) {
-    return 'Garantizar el traslado oportuno y seguro de las donaciones provenientes del CIFO';
-  } else if (desc.includes('equipo') || desc.includes('implemento')) {
-    return 'Contar con implementos adecuados que faciliten el desarrollo de las actividades';
-  } else if (desc.includes('tecnolog') || desc.includes('comunicacion')) {
-    return 'Fortalecer el área de comunicaciones mediante la implementación de recursos tecnológicos';
-  } else if (desc.includes('mantenimiento') || desc.includes('reparación')) {
-    return 'Garantizar su adecuado funcionamiento, prolongar su vida útil y asegurar condiciones óptimas de seguridad';
-  } else if (desc.includes('capacitación') || desc.includes('formación')) {
-    return 'Fortalecer las capacidades del personal para mejorar la calidad de atención';
-  } else if (desc.includes('mobiliario') || desc.includes('silla')) {
-    return 'Mejorar las condiciones de trabajo, promover el cuidado de la salud postural del personal';
-  } else if (desc.includes('inventario') || desc.includes('registro')) {
-    return 'Garantizar un adecuado registro, verificación y actualización de los bienes';
-  }
-  
-  return 'Complementar las necesidades operativas para el cumplimiento efectivo de la misión institucional';
-}
+    update: function (codigo, payload) {
+      const headers = HEADERS.CERTIFICACIONES;
+      const result = findRow(SHEETS.CERTIFICACIONES, headers, 'Código', codigo);
+      if (result.index === -1) {
+        throw new Error('Certificación no encontrada');
+      }
+      updateRow(SHEETS.CERTIFICACIONES, headers, result.index, payload);
+      SpreadsheetApp.flush();
+    },
 
-// ===============================================
-// CÓDIGO CONSECUTIVO
-// ===============================================
+    replaceItems: function (codigo, items) {
+      const headers = HEADERS.ITEMS;
+      const sheet = ensureSheet(SHEETS.ITEMS, headers);
+      const table = readTable(SHEETS.ITEMS);
+      const columnIndex = table.headers
+        .map(namespace.Utils.normalizeHeaderName)
+        .indexOf(namespace.Utils.normalizeHeaderName('Código Certificación'));
+
+      if (columnIndex !== -1) {
+        for (let i = table.rows.length; i >= 1; i--) {
+          if (table.rows[i - 1][columnIndex] === codigo) {
+            sheet.deleteRow(i + 1);
+          }
+        }
+      }
 
 function generarCodigoCertificacionConsecutivo() {
   try {
@@ -995,22 +1038,51 @@ function generarCodigoCertificacionConsecutivo() {
           }
         }
       }
-    }
-    
-    const siguienteNumero = ultimoNumero + 1;
-    const numeroFormateado = siguienteNumero.toString().padStart(4, '0');
-    
-    return `CP-${año}-${numeroFormateado}`;
-  } catch (error) {
-    Logger.log('Error en generarCodigoCertificacionConsecutivo: ' + error.toString());
-    const año = new Date().getFullYear();
-    return `CP-${año}-0001`;
-  }
-}
 
-// ===============================================
-// GESTIÓN DE ÍTEMS
-// ===============================================
+      firmantes.forEach(function (firmante) {
+        appendRow(SHEETS.FIRMANTES, headers, firmante);
+      });
+      SpreadsheetApp.flush();
+    }
+  };
+
+  namespace.Repositories = Object.freeze({
+    Catalog: CatalogRepository,
+    Plantilla: PlantillaRepository,
+    Config: ConfigRepository,
+    Certificacion: CertificacionRepository
+  });
+})(CP);
+
+// =============================================================
+// Servicios de negocio
+// =============================================================
+(function (namespace) {
+  const { SHEETS, HEADERS, DEFAULT_TEMPLATES, FOLDERS } = namespace.Constants;
+  const utils = namespace.Utils;
+  const sheets = namespace.Sheets;
+  const repos = namespace.Repositories;
+  const drive = namespace.Drive;
+
+  function buildCorrelative() {
+    const certificaciones = repos.Certificacion.listCertificaciones();
+    const year = new Date().getFullYear();
+    const prefix = 'CP-' + year;
+    const correlatives = certificaciones
+      .map(function (cert) {
+        const code = utils.normalizeString(cert['Código'] || cert.codigo);
+        if (!code || code.indexOf(prefix) !== 0) {
+          return 0;
+        }
+        const numberPart = Number(code.split('-').pop());
+        return Number.isFinite(numberPart) ? numberPart : 0;
+      })
+      .filter(function (value) {
+        return value > 0;
+      });
+    const next = correlatives.length ? Math.max.apply(null, correlatives) + 1 : 1;
+    return prefix + '-' + String(next).padStart(4, '0');
+  }
 
 function crearItemsCertificacion(codigoCertificacion, items) {
   try {
@@ -1039,7 +1111,6 @@ function crearItemsCertificacion(codigoCertificacion, items) {
     Logger.log('Error en crearItemsCertificacion: ' + error.toString());
     return { success: false, error: error.toString() };
   }
-}
 
 function obtenerItemsCertificacion(codigoCertificacion) {
   try {
@@ -1067,14 +1138,8 @@ function obtenerItemsCertificacion(codigoCertificacion) {
           creadoPor: row[8]
         });
       }
-    }
-    
-    return items.sort((a, b) => a.orden - b.orden);
-  } catch (error) {
-    Logger.log('Error en obtenerItemsCertificacion: ' + error.toString());
-    return [];
-  }
-}
+      return base;
+    });
 
 function eliminarItemsCertificacion(codigoCertificacion) {
   try {
@@ -1088,18 +1153,43 @@ function eliminarItemsCertificacion(codigoCertificacion) {
       if (data[i][0] === codigoCertificacion) {
         sheet.deleteRow(i + 1);
       }
-    }
-    
-    return { success: true };
-  } catch (error) {
-    Logger.log('Error en eliminarItemsCertificacion: ' + error.toString());
-    return { success: false, error: error.toString() };
-  }
-}
+    });
 
-// ===============================================
-// GESTIÓN DE FIRMANTES
-// ===============================================
+    repos.Plantilla.saveAll(plantillas);
+    return plantillas;
+  }
+
+  function seedCatalogs() {
+    repos.Catalog.saveAll(SHEETS.CATALOGO_INICIATIVAS, [
+      { id: 'INI-001', nombre: 'Programa de Ayuda Social', descripcion: 'Iniciativa de apoyo social', activo: true },
+      { id: 'INI-002', nombre: 'Proyecto de Infraestructura', descripcion: 'Mejoras de infraestructura', activo: true }
+    ]);
+    repos.Catalog.saveAll(SHEETS.CATALOGO_TIPOS, [
+      { id: 'TIP-001', nombre: 'Bienes', descripcion: 'Adquisición de bienes', activo: true },
+      { id: 'TIP-002', nombre: 'Servicios', descripcion: 'Contratación de servicios', activo: true }
+    ]);
+    repos.Catalog.saveAll(SHEETS.CATALOGO_FUENTES, [
+      { id: 'FUE-001', nombre: 'Recursos Ordinarios', descripcion: '', activo: true },
+      { id: 'FUE-002', nombre: 'Recursos Directamente Recaudados', descripcion: '', activo: true }
+    ]);
+    repos.Catalog.saveAll(SHEETS.CATALOGO_FINALIDADES, [
+      { id: 'FIN-001', nombre: 'Atención a comunidades vulnerables', descripcion: '', activo: true },
+      { id: 'FIN-002', nombre: 'Mejoras institucionales', descripcion: '', activo: true }
+    ]);
+    repos.Catalog.saveAll(SHEETS.CATALOGO_OFICINAS, [
+      { id: 'OFI-001', nombre: 'Oficina de Planeamiento', descripcion: '', activo: true },
+      { id: 'OFI-002', nombre: 'Oficina de Logística', descripcion: '', activo: true }
+    ]);
+    repos.Catalog.saveAll(SHEETS.CONFIG_SOLICITANTES, [
+      { id: 'SOL-001', nombre: 'Carlos Rivera', descripcion: 'Coordinador de Logística', activo: true, extra1: 'carlos@caritas.pe' },
+      { id: 'SOL-002', nombre: 'María Gonzales', descripcion: 'Analista de Planeamiento', activo: true, extra1: 'maria@caritas.pe' }
+    ]);
+    repos.Catalog.saveAll(SHEETS.CONFIG_FIRMANTES, [
+      { id: 'FIR-001', nombre: 'Evelyn Elena Huaycacllo Marín', descripcion: 'Jefa de la Oficina de Política, Planeamiento y Presupuesto', activo: true, extra1: '1' },
+      { id: 'FIR-002', nombre: 'Jorge Herrera', descripcion: 'Director Ejecutivo', activo: true, extra1: '2' },
+      { id: 'FIR-003', nombre: 'Susana Palomino', descripcion: 'Coordinadora de Planeamiento y Presupuesto', activo: true, extra1: '3' }
+    ]);
+  }
 
 function crearFirmantesCertificacion(codigoCertificacion, firmantes) {
   try {
@@ -1123,7 +1213,6 @@ function crearFirmantesCertificacion(codigoCertificacion, firmantes) {
     Logger.log('Error en crearFirmantesCertificacion: ' + error.toString());
     return { success: false, error: error.toString() };
   }
-}
 
 function obtenerFirmantesCertificacion(codigoCertificacion) {
   try {
@@ -1150,13 +1239,75 @@ function obtenerFirmantesCertificacion(codigoCertificacion) {
         });
       }
     }
-    
-    return firmantes.sort((a, b) => a.orden - b.orden);
-  } catch (error) {
-    Logger.log('Error en obtenerFirmantesCertificacion: ' + error.toString());
-    return [];
+    const codigo = buildCorrelative();
+    const fecha = utils.formatDate(new Date());
+    const payload = {
+      'Código': codigo,
+      'Fecha Emisión': fecha,
+      Descripción: 'Adquisición de kits de abrigo para comunidades vulnerables',
+      Iniciativa: 'INI-001',
+      Tipo: 'TIP-001',
+      Fuente: 'FUE-001',
+      Finalidad: 'Atender a familias afectadas por bajas temperaturas',
+      Oficina: 'OFI-001',
+      Solicitante: 'SOL-001',
+      'Cargo Solicitante': 'Coordinador de Logística',
+      'Email Solicitante': 'carlos@caritas.pe',
+      'Número Autorización': '',
+      'Cargo Autorizador': 'Director Ejecutivo',
+      Estado: 'Activa',
+      'Disposición/Base Legal': 'Directiva 003-2023-SG/CARITASLIMA',
+      'Monto Total': 15000,
+      'Monto en Letras': numeroALetras(15000),
+      'Fecha Creación': utils.formatDateTime(new Date()),
+      'Creado Por': Session.getActiveUser().getEmail(),
+      'Fecha Modificación': '',
+      'Modificado Por': '',
+      'Fecha Anulación': '',
+      'Anulado Por': '',
+      'Motivo Anulación': '',
+      Plantilla: 'plantilla_evelyn',
+      'URL Documento': '',
+      'URL PDF': '',
+      'Finalidad Detallada': 'Atender a familias afectadas por bajas temperaturas con kits de abrigo.'
+    };
+    repos.Certificacion.create(payload);
+
+    repos.Certificacion.replaceItems(codigo, [
+      {
+        'Código Certificación': codigo,
+        Orden: 1,
+        Descripción: 'Kit de abrigo completo',
+        Cantidad: 150,
+        Unidad: 'Unidades',
+        'Precio Unitario': 100,
+        Subtotal: 15000,
+        'Fecha Creación': utils.formatDateTime(new Date()),
+        'Creado Por': Session.getActiveUser().getEmail()
+      }
+    ]);
+
+    repos.Certificacion.replaceFirmantes(codigo, [
+      {
+        'Código Certificación': codigo,
+        Orden: 1,
+        Nombre: 'Evelyn Elena Huaycacllo Marín',
+        Cargo: 'Jefa de la Oficina de Política, Planeamiento y Presupuesto',
+        Obligatorio: true,
+        'Fecha Creación': utils.formatDateTime(new Date()),
+        'Creado Por': Session.getActiveUser().getEmail()
+      },
+      {
+        'Código Certificación': codigo,
+        Orden: 2,
+        Nombre: 'Jorge Herrera',
+        Cargo: 'Director Ejecutivo',
+        Obligatorio: true,
+        'Fecha Creación': utils.formatDateTime(new Date()),
+        'Creado Por': Session.getActiveUser().getEmail()
+      }
+    ]);
   }
-}
 
 function eliminarFirmantesCertificacion(codigoCertificacion) {
   try {
@@ -1170,14 +1321,22 @@ function eliminarFirmantesCertificacion(codigoCertificacion) {
       if (data[i][0] === codigoCertificacion) {
         sheet.deleteRow(i + 1);
       }
+      const millones = Math.floor(n / 1000000);
+      const resto = n % 1000000;
+      const millonesTexto = millones === 1 ? 'un millón' : convertir(millones) + ' millones';
+      if (resto === 0) return millonesTexto;
+      return millonesTexto + ' ' + convertir(resto);
     }
-    
-    return { success: true };
-  } catch (error) {
-    Logger.log('Error en eliminarFirmantesCertificacion: ' + error.toString());
-    return { success: false, error: error.toString() };
+
+    const entero = Math.floor(numero);
+    const decimales = Math.round((numero - entero) * 100);
+    let resultado = convertir(entero).replace(/\buno\b/g, 'un');
+    resultado = resultado.charAt(0).toUpperCase() + resultado.slice(1);
+    if (decimales > 0) {
+      resultado += ' con ' + convertir(decimales) + ' céntimos';
+    }
+    return resultado + ' soles';
   }
-}
 
 function crearFirmantesBasadosEnPlantilla(codigoCertificacion, plantillaId) {
   try {
@@ -1192,15 +1351,20 @@ function crearFirmantesBasadosEnPlantilla(codigoCertificacion, plantillaId) {
     Logger.log('Error en crearFirmantesBasadosEnPlantilla: ' + error.toString());
     return { success: false, error: error.toString() };
   }
-}
 
 function obtenerFirmantePorPlantilla(plantillaId) {
   return PLANTILLA_FIRMANTES[plantillaId] || PLANTILLA_FIRMANTES['plantilla_evelyn'];
 }
 
-// ===============================================
-// CATÁLOGOS
-// ===============================================
+  function crearCertificacion(payload) {
+    sheets.ensureBaseStructure();
+    const codigo = buildCorrelative();
+    const ahora = utils.now();
+    const fechaEmision = payload.fechaCertificacion || payload.fecha || utils.formatDate(ahora);
+    const configuracionGeneral = repos.Config.list();
+    const solicitante = repos.Catalog.list(SHEETS.CONFIG_SOLICITANTES).find(function (item) {
+      return item.id === payload.solicitante;
+    });
 
 function obtenerCatalogo(tipo) {
   try {
@@ -1245,7 +1409,6 @@ function obtenerCatalogo(tipo) {
     Logger.log('Error en obtenerCatalogo: ' + error.toString());
     return [];
   }
-}
 
 function buildPlantillaHeaderMap(headers) {
   const normalizedHeaders = headers.map(normalizeHeaderName);
@@ -1435,14 +1598,7 @@ function obtenerEstadisticasDashboard() {
         data: {
           total: 0,
           montoTotal: 0,
-          porEstado: {
-            'Borrador': 0,
-            'En revisión': 0,
-            'Autorización pendiente': 0,
-            'Activa': 0,
-            'Anulada': 0
-          },
-          porOficina: {},
+          porEstado: {},
           certificacionesRecientes: []
         }
       };
@@ -1462,36 +1618,70 @@ function obtenerEstadisticasDashboard() {
       certificacionesRecientes: certificaciones.slice(0, 10).map(cert => ({ ...cert }))
     };
 
-    // Contar por estado
-    certificaciones.forEach(cert => {
-      if (estadisticas.porEstado.hasOwnProperty(cert.estado)) {
-        estadisticas.porEstado[cert.estado]++;
+    return {
+      success: true,
+      data: {
+        total: certificaciones.length,
+        montoTotal,
+        porEstado,
+        certificacionesRecientes: recientes
       }
 
       // Contar por oficina
       const nombreOficina = obtenerNombreOficina(cert.oficina);
       estadisticas.porOficina[nombreOficina] = (estadisticas.porOficina[nombreOficina] || 0) + 1;
     });
+    const firmantes = repos.Certificacion.listFirmantes().filter(function (firmante) {
+      return firmante['Código Certificación'] === codigo;
+    });
+    const resultado = buildDocument(certificacion, items, firmantes);
+    certificacion['URL Documento'] = resultado.urlDocumento;
+    certificacion['URL PDF'] = resultado.urlPDF;
+    repos.Certificacion.update(codigo, certificacion);
+    return { success: true, urlDocumento: resultado.urlDocumento, urlPDF: resultado.urlPDF };
+  }
 
-    return {
-      success: true,
-      data: estadisticas
-    };
-  } catch (error) {
-    Logger.log('Error en obtenerEstadisticasDashboard: ' + error.toString());
+  function generarFinalidadConIA(payload) {
+    try {
+      const prompt = 'Genera una finalidad para una certificación presupuestal con la siguiente información: ' + JSON.stringify(payload);
+      const response = UrlFetchApp.fetch('https://oi-server.onrender.com/chat/completions', {
+        method: 'post',
+        contentType: 'application/json',
+        muteHttpExceptions: true,
+        payload: JSON.stringify({
+          model: 'openrouter/claude-sonnet-4',
+          messages: [
+            {
+              role: 'system',
+              content: 'Eres un asistente que resume finalidades presupuestales en español peruano.'
+            },
+            { role: 'user', content: prompt }
+          ]
+        })
+      });
+      const json = JSON.parse(response.getContentText());
+      const texto = json.choices && json.choices.length ? json.choices[0].message.content.trim() : '';
+      if (texto) {
+        return { success: true, finalidad: texto };
+      }
+    } catch (error) {
+      Logger.log('Fallo generando finalidad con IA: ' + error);
+    }
     return {
       success: false,
-      error: error.toString(),
-      data: {
-        total: 0,
-        montoTotal: 0,
-        porEstado: {},
-        porOficina: {},
-        certificacionesRecientes: []
-      }
+      finalidad: 'Finalidad: ' + (payload.descripcion || 'Atender la necesidad presupuestal descrita.')
     };
   }
-}
+
+  function obtenerConfiguracionGeneral() {
+    const config = repos.Config.list();
+    return {
+      disposicion_base_legal: config.disposicion_base_legal || '',
+      codigo_formato: config.codigo_formato || 'CP-{YEAR}-{NUMBER}',
+      timezone: config.timezone || namespace.Constants.DEFAULT_TIMEZONE,
+      moneda_por_defecto: config.moneda_por_defecto || 'PEN'
+    };
+  }
 
 // ===============================================
 // FUNCIONES DE CÁLCULO Y UTILIDADES
@@ -1523,7 +1713,6 @@ function recalcularTotalesCertificacion(codigoCertificacion) {
     Logger.log('Error en recalcularTotalesCertificacion: ' + error.toString());
     return { success: false, error: error.toString() };
   }
-}
 
 function convertirNumeroALetrasTexto(numero) {
   const cantidad = parseNumber(numero, 0);
@@ -1653,7 +1842,6 @@ function convertirNumeroALetras(numero) {
       montoLetras: 'CERO CON 00/100 SOLES'
     };
   }
-}
 
 // ===============================================
 // FUNCIONES DE UTILIDAD
@@ -1680,329 +1868,248 @@ function registrarActividad(accion, detalles = '') {
   } catch (error) {
     Logger.log('Error en registrarActividad: ' + error.toString());
   }
-}
 
-function formatearFechaDocumento(fecha) {
-  const f = new Date(fecha);
-  return `${f.getDate().toString().padStart(2, '0')}/${(f.getMonth() + 1).toString().padStart(2, '0')}/${f.getFullYear()}`;
-}
-
-function obtenerNombreMes(numeroMes) {
-  const meses = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
-                 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
-  return meses[numeroMes] || '';
-}
-
-function obtenerNombreMesCompleto(numeroMes) {
-  const meses = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
-                 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
-  return meses[numeroMes] || '';
-}
-
-function obtenerNombreCatalogo(tipo, codigo) {
-  try {
-    const catalogo = obtenerCatalogo(tipo);
-    const item = catalogo.find(i => i.codigo === codigo);
-    return item ? item.nombre : codigo;
-  } catch (error) {
-    return codigo || '';
+  function configurarSistema() {
+    sheets.ensureBaseStructure();
+    seedCatalogs();
+    seedPlantillas();
+    seedConfiguracionGeneral();
+    seedExampleCertificacion();
+    SpreadsheetApp.flush();
+    return { success: true, message: 'Sistema configurado correctamente.' };
   }
-}
 
-function obtenerNombreOficina(codigo) {
-  try {
-    const oficinas = obtenerCatalogo('oficinas');
-    const oficina = oficinas.find(o => o.codigo === codigo);
-    return oficina ? oficina.nombre : codigo;
-  } catch (error) {
-    return codigo || 'Sin oficina';
+  function crearSoloEstructura() {
+    sheets.ensureBaseStructure();
+    seedPlantillas();
+    SpreadsheetApp.flush();
+    return { success: true, message: 'Estructura base creada.' };
   }
-}
 
-// ===============================================
-// FUNCIONES PARA CREAR HOJAS DE CONFIGURACIÓN
-// ===============================================
-
-function crearHojaConfigSolicitantes() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName('Config_Solicitantes');
-  
-  if (sheet) return sheet;
-  
-  sheet = ss.insertSheet('Config_Solicitantes');
-  
-  const headers = ['ID', 'Nombre Completo', 'Cargo', 'Email', 'Activo'];
-  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-  
-  const headerRange = sheet.getRange(1, 1, 1, headers.length);
-  headerRange.setBackground('#019952');
-  headerRange.setFontColor('white');
-  headerRange.setFontWeight('bold');
-  
-  sheet.setFrozenRows(1);
-  
-  const solicitantesDefecto = [
-    ['SOL001', 'Evelyn Elena Huaycacllo Marin', 'Jefa de la Oficina de Política, Planeamiento y Presupuesto', 'evelyn.huaycacllo@caritaslima.org', true],
-    ['SOL002', 'Guadalupe Susana Callupe Pacheco', 'Coordinadora de Logística', 'guadalupe.callupe@caritaslima.org', true]
-  ];
-  
-  sheet.getRange(2, 1, solicitantesDefecto.length, 5).setValues(solicitantesDefecto);
-  
-  Logger.log('Hoja Config_Solicitantes creada');
-  return sheet;
-}
-
-function crearHojaConfigFirmantes() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName('Config_Firmantes');
-  
-  if (sheet) return sheet;
-  
-  sheet = ss.insertSheet('Config_Firmantes');
-  
-  const headers = ['ID', 'Nombre Completo', 'Cargo', 'Orden', 'Activo'];
-  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-  
-  const headerRange = sheet.getRange(1, 1, 1, headers.length);
-  headerRange.setBackground('#019952');
-  headerRange.setFontColor('white');
-  headerRange.setFontWeight('bold');
-  
-  sheet.setFrozenRows(1);
-  
-  const firmantesDefecto = [
-    ['FIR001', 'Evelyn Elena Huaycacllo Marin', 'Jefa de la Oficina de Política, Planeamiento y Presupuesto', 1, true],
-    ['FIR002', 'Padre Miguel Ángel Castillo Seminario', 'Director Ejecutivo', 2, true]
-  ];
-  
-  sheet.getRange(2, 1, firmantesDefecto.length, 5).setValues(firmantesDefecto);
-  
-  Logger.log('Hoja Config_Firmantes creada');
-  return sheet;
-}
-
-function crearHojaConfigGeneral() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName('Config_General');
-  
-  if (sheet) return sheet;
-  
-  sheet = ss.insertSheet('Config_General');
-  
-  const headers = ['Configuración', 'Valor'];
-  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-  
-  const headerRange = sheet.getRange(1, 1, 1, headers.length);
-  headerRange.setBackground('#019952');
-  headerRange.setFontColor('white');
-  headerRange.setFontWeight('bold');
-  
-  sheet.setFrozenRows(1);
-  
-  const configuracionDefecto = [
-    ['disposicion_base_legal', 'Directiva 003-2023-SG/CARITASLIMA, Directiva de contratación de bienes y servicios de la Vicaría de Pastoral Social y Dignidad Humana - Caritas Lima']
-  ];
-  
-  sheet.getRange(2, 1, configuracionDefecto.length, 2).setValues(configuracionDefecto);
-  
-  Logger.log('Hoja Config_General creada');
-  return sheet;
-}
-
-// ===============================================
-// FUNCIONES DE GESTIÓN DE CONFIGURACIÓN
-// ===============================================
-
-function actualizarSolicitante(id, datos) {
-  try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    let sheet = ss.getSheetByName('Config_Solicitantes');
-    
-    if (!sheet) {
-      crearHojaConfigSolicitantes();
-      sheet = ss.getSheetByName('Config_Solicitantes');
-    }
-    
-    const dataRange = sheet.getDataRange();
-    const values = dataRange.getValues();
-    
-    let filaIndex = -1;
-    for (let i = 1; i < values.length; i++) {
-      if (values[i][0] === id) {
-        filaIndex = i;
-        break;
-      }
-    }
-    
-    if (filaIndex === -1) {
-      const fila = [id, datos.nombre, datos.cargo, datos.email, datos.activo !== false];
-      sheet.appendRow(fila);
-    } else {
-      values[filaIndex][1] = datos.nombre;
-      values[filaIndex][2] = datos.cargo;
-      values[filaIndex][3] = datos.email;
-      values[filaIndex][4] = datos.activo !== false;
-      dataRange.setValues(values);
-    }
-    
-    registrarActividad('ACTUALIZAR_SOLICITANTE', `ID: ${id}, Nombre: ${datos.nombre}`);
-    return { success: true };
-  } catch (error) {
-    Logger.log('Error en actualizarSolicitante: ' + error.toString());
-    return { success: false, error: error.toString() };
+  function normalizarEstructuraSistema() {
+    sheets.ensureBaseStructure();
+    seedPlantillas();
+    SpreadsheetApp.flush();
+    return { success: true, message: 'Estructura normalizada.' };
   }
+
+  function resetearSistema() {
+    sheets.ensureBaseStructure();
+    const { HEADERS } = namespace.Constants;
+
+    sheets.writeTable(namespace.Constants.SHEETS.CERTIFICACIONES, HEADERS.CERTIFICACIONES, []);
+    sheets.writeTable(namespace.Constants.SHEETS.ITEMS, HEADERS.ITEMS, []);
+    sheets.writeTable(namespace.Constants.SHEETS.FIRMANTES, HEADERS.FIRMANTES, []);
+    sheets.writeTable(namespace.Constants.SHEETS.CONFIG_SOLICITANTES, HEADERS.CATALOGOS, []);
+    sheets.writeTable(namespace.Constants.SHEETS.CONFIG_FIRMANTES, HEADERS.CATALOGOS, []);
+    sheets.writeTable(namespace.Constants.SHEETS.CATALOGO_INICIATIVAS, HEADERS.CATALOGOS, []);
+    sheets.writeTable(namespace.Constants.SHEETS.CATALOGO_TIPOS, HEADERS.CATALOGOS, []);
+    sheets.writeTable(namespace.Constants.SHEETS.CATALOGO_FUENTES, HEADERS.CATALOGOS, []);
+    sheets.writeTable(namespace.Constants.SHEETS.CATALOGO_FINALIDADES, HEADERS.CATALOGOS, []);
+    sheets.writeTable(namespace.Constants.SHEETS.CATALOGO_OFICINAS, HEADERS.CATALOGOS, []);
+    sheets.writeTable(namespace.Constants.SHEETS.PLANTILLAS, HEADERS.PLANTILLAS, []);
+    sheets.writeTable(namespace.Constants.SHEETS.CONFIG_GENERAL, HEADERS.CONFIG_GENERAL, []);
+    sheets.writeTable(namespace.Constants.SHEETS.BITACORA, HEADERS.BITACORA, []);
+
+    seedCatalogs();
+    seedPlantillas();
+    seedConfiguracionGeneral();
+    seedExampleCertificacion();
+    return { success: true, message: 'Sistema reiniciado correctamente.' };
+  }
+
+  namespace.Services = Object.freeze({
+    crearCertificacion,
+    listarCertificaciones,
+    obtenerEstadisticasDashboard,
+    generarDocumentoCertificacion,
+    convertirNumeroALetras,
+    generarFinalidadConIA,
+    obtenerConfiguracionGeneral,
+    obtenerCatalogo,
+    actualizarSolicitante,
+    eliminarSolicitante,
+    actualizarFirmante,
+    eliminarFirmante,
+    actualizarConfiguracionGeneral,
+    configurarSistema,
+    crearSoloEstructura,
+    normalizarEstructuraSistema,
+    resetearSistema
+  });
+})(CP);
+
+// =============================================================
+// Controladores expuestos a la interfaz y al despliegue web
+// =============================================================
+(function (namespace) {
+  const services = namespace.Services;
+
+  function doGet() {
+    return HtmlService.createTemplateFromFile('index').evaluate().setTitle('Certificaciones Presupuestales');
+  }
+
+  function include(filename) {
+    return HtmlService.createHtmlOutputFromFile(filename).getContent();
+  }
+
+  function obtenerCertificaciones() {
+    return services.listarCertificaciones();
+  }
+
+  function obtenerEstadisticasDashboard() {
+    return services.obtenerEstadisticasDashboard();
+  }
+
+  function crearCertificacion(payload) {
+    return services.crearCertificacion(payload);
+  }
+
+  function generarDocumentoCertificacion(codigo) {
+    return services.generarDocumentoCertificacion(codigo);
+  }
+
+  function convertirNumeroALetras(numero) {
+    return services.convertirNumeroALetras(numero);
+  }
+
+  function generarFinalidadConIA(payload) {
+    return services.generarFinalidadConIA(payload);
+  }
+
+  function obtenerConfiguracionGeneral() {
+    return services.obtenerConfiguracionGeneral();
+  }
+
+  function obtenerCatalogo(tipo) {
+    return services.obtenerCatalogo(tipo);
+  }
+
+  function actualizarSolicitante(id, payload) {
+    return services.actualizarSolicitante(id, payload);
+  }
+
+  function eliminarSolicitante(id) {
+    return services.eliminarSolicitante(id);
+  }
+
+  function actualizarFirmante(id, payload) {
+    return services.actualizarFirmante(id, payload);
+  }
+
+  function eliminarFirmante(id) {
+    return services.eliminarFirmante(id);
+  }
+
+  function actualizarConfiguracionGeneral(payload) {
+    return services.actualizarConfiguracionGeneral(payload);
+  }
+
+  function configurarSistema() {
+    return services.configurarSistema();
+  }
+
+  function crearSoloEstructura() {
+    return services.crearSoloEstructura();
+  }
+
+  function normalizarEstructuraSistema() {
+    return services.normalizarEstructuraSistema();
+  }
+
+  function resetearSistema() {
+    return services.resetearSistema();
+  }
+
+  namespace.Controllers = Object.freeze({
+    doGet,
+    include,
+    obtenerCertificaciones,
+    obtenerEstadisticasDashboard,
+    crearCertificacion,
+    generarDocumentoCertificacion,
+    convertirNumeroALetras,
+    generarFinalidadConIA,
+    obtenerConfiguracionGeneral,
+    obtenerCatalogo,
+    actualizarSolicitante,
+    eliminarSolicitante,
+    actualizarFirmante,
+    eliminarFirmante,
+    actualizarConfiguracionGeneral,
+    configurarSistema,
+    crearSoloEstructura,
+    normalizarEstructuraSistema,
+    resetearSistema
+  });
+})(CP);
+
+// =============================================================
+// Exposición global para Apps Script
+// =============================================================
+function doGet(e) {
+  return CP.Controllers.doGet(e);
 }
 
-function actualizarFirmante(id, datos) {
-  try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    let sheet = ss.getSheetByName('Config_Firmantes');
-    
-    if (!sheet) {
-      crearHojaConfigFirmantes();
-      sheet = ss.getSheetByName('Config_Firmantes');
-    }
-    
-    const dataRange = sheet.getDataRange();
-    const values = dataRange.getValues();
-    
-    let filaIndex = -1;
-    for (let i = 1; i < values.length; i++) {
-      if (values[i][0] === id) {
-        filaIndex = i;
-        break;
-      }
-    }
-    
-    if (filaIndex === -1) {
-      const fila = [id, datos.nombre, datos.cargo, datos.orden || 1, datos.activo !== false];
-      sheet.appendRow(fila);
-    } else {
-      values[filaIndex][1] = datos.nombre;
-      values[filaIndex][2] = datos.cargo;
-      values[filaIndex][3] = datos.orden || 1;
-      values[filaIndex][4] = datos.activo !== false;
-      dataRange.setValues(values);
-    }
-    
-    registrarActividad('ACTUALIZAR_FIRMANTE', `ID: ${id}, Nombre: ${datos.nombre}`);
-    return { success: true };
-  } catch (error) {
-    Logger.log('Error en actualizarFirmante: ' + error.toString());
-    return { success: false, error: error.toString() };
-  }
+function include(filename) {
+  return CP.Controllers.include(filename);
+}
+
+function obtenerCertificaciones() {
+  return CP.Controllers.obtenerCertificaciones();
+}
+
+function obtenerEstadisticasDashboard() {
+  return CP.Controllers.obtenerEstadisticasDashboard();
+}
+
+function crearCertificacion(payload) {
+  return CP.Controllers.crearCertificacion(payload);
+}
+
+function generarDocumentoCertificacion(codigo) {
+  return CP.Controllers.generarDocumentoCertificacion(codigo);
+}
+
+function convertirNumeroALetras(numero) {
+  return CP.Controllers.convertirNumeroALetras(numero);
+}
+
+function generarFinalidadConIA(payload) {
+  return CP.Controllers.generarFinalidadConIA(payload);
+}
+
+function obtenerConfiguracionGeneral() {
+  return CP.Controllers.obtenerConfiguracionGeneral();
+}
+
+function obtenerCatalogo(tipo) {
+  return CP.Controllers.obtenerCatalogo(tipo);
+}
+
+function actualizarSolicitante(id, payload) {
+  return CP.Controllers.actualizarSolicitante(id, payload);
 }
 
 function eliminarSolicitante(id) {
-  try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName('Config_Solicitantes');
-    
-    if (!sheet) {
-      return { success: false, error: 'Hoja de solicitantes no encontrada' };
-    }
-    
-    const data = sheet.getDataRange().getValues();
-    
-    for (let i = data.length - 1; i >= 1; i--) {
-      if (data[i][0] === id) {
-        sheet.deleteRow(i + 1);
-        break;
-      }
-    }
-    
-    registrarActividad('ELIMINAR_SOLICITANTE', `ID: ${id}`);
-    return { success: true };
-  } catch (error) {
-    Logger.log('Error en eliminarSolicitante: ' + error.toString());
-    return { success: false, error: error.toString() };
-  }
+  return CP.Controllers.eliminarSolicitante(id);
+}
+
+function actualizarFirmante(id, payload) {
+  return CP.Controllers.actualizarFirmante(id, payload);
 }
 
 function eliminarFirmante(id) {
-  try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName('Config_Firmantes');
-    
-    if (!sheet) {
-      return { success: false, error: 'Hoja de firmantes no encontrada' };
-    }
-    
-    const data = sheet.getDataRange().getValues();
-    
-    for (let i = data.length - 1; i >= 1; i--) {
-      if (data[i][0] === id) {
-        sheet.deleteRow(i + 1);
-        break;
-      }
-    }
-    
-    registrarActividad('ELIMINAR_FIRMANTE', `ID: ${id}`);
-    return { success: true };
-  } catch (error) {
-    Logger.log('Error en eliminarFirmante: ' + error.toString());
-    return { success: false, error: error.toString() };
-  }
+  return CP.Controllers.eliminarFirmante(id);
 }
 
-// ===============================================
-// FUNCIONES DE TESTING
-// ===============================================
-
-function testCrearCertificacionCompleta() {
-  try {
-    const datosTest = {
-      fechaCertificacion: '2025-01-27',
-      descripcion: 'Adquisición de productos adicionales para completar los kits de ollas (AZÚCAR y ACEITE)',
-      iniciativa: 'INI001',
-      tipo: 'TIP001',
-      fuente: 'FUE001',
-      oficina: 'OFI001',
-      solicitanteId: 'SOL002',
-      plantilla: 'plantilla_evelyn',
-      finalidad: 'Complementar con productos adicionales la conformación de los kits de ollas',
-      items: [
-        {
-          descripcion: 'AZÚCAR CARTAVIO RUBIA GRANEL',
-          cantidad: 25,
-          unidad: 'Kilogramos',
-          precioUnitario: 4.20
-        },
-        {
-          descripcion: 'ACEITE VEGA BOTELLA 1 LITRO',
-          cantidad: 30,
-          unidad: 'Unidades',
-          precioUnitario: 8.50
-        }
-      ]
-    };
-    
-    Logger.log('Datos de prueba preparados');
-    const resultado = crearCertificacion(datosTest);
-    
-    if (resultado.success) {
-      Logger.log('=== CERTIFICACIÓN CREADA EXITOSAMENTE ===');
-      Logger.log('Código: ' + resultado.codigo);
-      
-      if (resultado.urls && resultado.urls.documento) {
-        Logger.log('URL Documento: ' + resultado.urls.documento);
-        Logger.log('URL PDF: ' + resultado.urls.pdf);
-      }
-    } else {
-      Logger.log('=== ERROR EN CREACIÓN ===');
-      Logger.log('Error: ' + resultado.error);
-    }
-    
-    return resultado;
-  } catch (error) {
-    Logger.log('Error en testCrearCertificacionCompleta: ' + error.toString());
-    return { success: false, error: error.toString() };
-  }
+function actualizarConfiguracionGeneral(payload) {
+  return CP.Controllers.actualizarConfiguracionGeneral(payload);
 }
 
-// ===============================================
-// GENERADOR DE CERTIFICADO PERFECTO (COMO EL QUE MOSTRASTE)
-// ===============================================
+function configurarSistema() {
+  return CP.Controllers.configurarSistema();
+}
 
 function generarCertificadoPerfecto(codigoCertificacion) {
   try {
