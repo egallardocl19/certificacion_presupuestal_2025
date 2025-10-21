@@ -462,25 +462,19 @@ function crearHojaCatalogoOficinas(ss) {
 }
 
 function crearHojaPlantillas(ss) {
-  let sheet = ss.getSheetByName('Plantillas');
-  if (sheet) {
-    ss.deleteSheet(sheet);
-  }
-  
-  sheet = ss.insertSheet('Plantillas');
-  
-  const headers = ['ID', 'Nombre', 'Descripción', 'Activa', 'Firmantes', 'Plantilla HTML'];
-  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-  
-  // Formatear encabezados
-  const headerRange = sheet.getRange(1, 1, 1, headers.length);
+  const sheet = ensureSheetStructure(SHEET_NAMES.PLANTILLAS, PLANTILLAS_HEADERS);
+
+  // Formatear encabezados sin eliminar datos existentes
+  const headerRange = sheet.getRange(1, 1, 1, PLANTILLAS_HEADERS.length);
   headerRange.setBackground('#f44336');
   headerRange.setFontColor('white');
   headerRange.setFontWeight('bold');
-  
-  sheet.setFrozenRows(1);
-  
-  Logger.log('Hoja de Plantillas creada');
+
+  if (sheet.getFrozenRows() < 1) {
+    sheet.setFrozenRows(1);
+  }
+
+  Logger.log('Hoja de Plantillas creada o actualizada');
 }
 
 function crearHojaUsuarios(ss) {
@@ -645,22 +639,117 @@ function crearCatalogosEjemplo() {
 
 function crearPlantillasEjemplo() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName('Plantillas');
-  
-  // Limpiar plantillas existentes
-  const dataRange = sheet.getDataRange();
-  if (dataRange.getNumRows() > 1) {
-    sheet.deleteRows(2, dataRange.getNumRows() - 1);
+  const sheet = ensureSheetStructure(SHEET_NAMES.PLANTILLAS, PLANTILLAS_HEADERS);
+  const headersLength = PLANTILLAS_HEADERS.length;
+
+  const data = sheet.getDataRange().getValues();
+  const existentes = new Map();
+
+  for (let i = 1; i < data.length; i++) {
+    const id = (data[i][0] || '').toString().trim();
+    if (id) {
+      existentes.set(id, {
+        index: i + 1,
+        values: data[i].slice(0, headersLength)
+      });
+    }
   }
-  
-  const plantillas = [
-    ['plantilla_evelyn', 'Certificación - Evelyn Huaycacllo', 'Certificación firmada por la Jefa de Presupuesto', true, 1, 'TEMPLATE_EVELYN'],
-    ['plantilla_director', 'Certificación - Director Ejecutivo', 'Certificación firmada por el Director', true, 1, 'TEMPLATE_DIRECTOR']
+
+  const plantillasBase = [
+    {
+      id: 'plantilla_evelyn',
+      nombre: 'Certificación - Evelyn Huaycacllo',
+      descripcion: 'Certificación firmada por la Jefa de Presupuesto',
+      activa: true,
+      firmantes: 1,
+      plantillaHtml: 'https://docs.google.com/document/d/PLANTILLA_EVELYN/edit',
+      firmanteId: 'FIR001',
+      firmanteNombre: 'Evelyn Elena Huaycacllo Marin',
+      firmanteCargo: 'Jefa de la Oficina de Política, Planeamiento y Presupuesto'
+    },
+    {
+      id: 'plantilla_director',
+      nombre: 'Certificación - Director Ejecutivo',
+      descripcion: 'Certificación firmada por el Director Ejecutivo',
+      activa: true,
+      firmantes: 1,
+      plantillaHtml: 'https://docs.google.com/document/d/PLANTILLA_DIRECTOR/edit',
+      firmanteId: 'FIR002',
+      firmanteNombre: 'Padre Miguel Ángel Castillo Seminario',
+      firmanteCargo: 'Director Ejecutivo'
+    },
+    {
+      id: 'plantilla_presupuestal',
+      nombre: 'Certificación - Equipo Presupuestal',
+      descripcion: 'Certificación emitida por el equipo de presupuesto y planeamiento',
+      activa: true,
+      firmantes: 1,
+      plantillaHtml: 'https://docs.google.com/document/d/PLANTILLA_PRESUPUESTO/edit',
+      firmanteId: 'FIR003',
+      firmanteNombre: 'Equipo de Presupuesto',
+      firmanteCargo: 'Oficina de Política, Planeamiento y Presupuesto'
+    }
   ];
-  
-  sheet.getRange(2, 1, plantillas.length, 6).setValues(plantillas);
-  
-  Logger.log('Plantillas simplificadas creadas');
+
+  const nuevasFilas = [];
+
+  plantillasBase.forEach(plantilla => {
+    const filaExistente = existentes.get(plantilla.id);
+    const valores = filaExistente ? filaExistente.values : new Array(headersLength).fill('');
+
+    valores[0] = plantilla.id;
+    valores[1] = plantilla.nombre;
+    valores[2] = plantilla.descripcion;
+    valores[3] = true;
+    valores[4] = plantilla.firmantes;
+    valores[5] = plantilla.plantillaHtml;
+    valores[6] = plantilla.firmanteId;
+    valores[7] = plantilla.firmanteNombre;
+    valores[8] = plantilla.firmanteCargo;
+
+    if (filaExistente) {
+      sheet.getRange(filaExistente.index, 1, 1, headersLength).setValues([valores]);
+    } else {
+      nuevasFilas.push(valores);
+    }
+
+    existentes.set(plantilla.id, {
+      index: filaExistente ? filaExistente.index : null,
+      values: valores
+    });
+  });
+
+  if (nuevasFilas.length > 0) {
+    sheet.getRange(sheet.getLastRow() + 1, 1, nuevasFilas.length, headersLength).setValues(nuevasFilas);
+  }
+
+  const placeholders = [];
+  for (let i = 1; i <= 5; i++) {
+    const id = `plantilla_personalizada_${i}`;
+    if (!existentes.has(id)) {
+      placeholders.push([
+        id,
+        `Plantilla Personalizada ${i}`,
+        'Personaliza esta plantilla con tu propio formato y firmante.',
+        false,
+        1,
+        '',
+        '',
+        '',
+        ''
+      ]);
+    }
+  }
+
+  if (placeholders.length > 0) {
+    sheet.getRange(sheet.getLastRow() + 1, 1, placeholders.length, headersLength).setValues(placeholders);
+  }
+
+  SpreadsheetApp.flush();
+
+  invalidarCachePlantillas();
+
+  Logger.log('Plantillas base y espacios personalizados asegurados');
 }
 
 function crearUsuariosEjemplo() {
@@ -707,7 +796,8 @@ function crearCertificacionesEjemplo() {
         cargo: 'Jefa de la Oficina de Política, Planeamiento y Presupuesto',
         obligatorio: true
       }
-    ]
+    ],
+    plantilla: 'plantilla_evelyn'
   };
   
   try {
@@ -751,6 +841,42 @@ function crearSoloEstructura() {
     return { success: true, message: 'Estructura básica creada correctamente' };
   } catch (error) {
     Logger.log('Error en crearSoloEstructura: ' + error.toString());
+    return { success: false, error: error.toString() };
+  }
+}
+
+function normalizarEstructuraSistema() {
+  try {
+    Logger.log('Normalizando estructura del sistema...');
+
+    asegurarPropiedadesDeScript();
+
+    ensureCertificacionesSheet();
+    ensureItemsSheet();
+    ensureFirmantesSheet();
+    ensureBitacoraSheet();
+
+    ensureSheetStructure(SHEET_NAMES.CATALOGO_INICIATIVAS, ['Código', 'Nombre', 'Descripción', 'Activo']);
+    ensureSheetStructure(SHEET_NAMES.CATALOGO_TIPOS, ['Código', 'Nombre', 'Descripción', 'Activo']);
+    ensureSheetStructure(SHEET_NAMES.CATALOGO_FUENTES, ['Código', 'Nombre', 'Descripción', 'Activo']);
+    ensureSheetStructure(SHEET_NAMES.CATALOGO_FINALIDADES, ['Código', 'Nombre', 'Descripción', 'Activo']);
+    ensureSheetStructure(SHEET_NAMES.CATALOGO_OFICINAS, ['Código', 'Nombre', 'Descripción', 'Activo']);
+
+    ensureSheetStructure(SHEET_NAMES.CONFIG_SOLICITANTES, ['ID', 'Nombre Completo', 'Cargo', 'Email', 'Activo']);
+    ensureSheetStructure(SHEET_NAMES.CONFIG_FIRMANTES, ['ID', 'Nombre Completo', 'Cargo', 'Orden', 'Activo']);
+    ensureSheetStructure(SHEET_NAMES.CONFIG_GENERAL, ['Configuración', 'Valor']);
+    ensureSheetStructure('Usuarios', ['Email', 'Nombre', 'Rol', 'Oficina', 'Activo', 'Fecha Creación']);
+
+    ensureSheetStructure(SHEET_NAMES.PLANTILLAS, PLANTILLAS_HEADERS);
+
+    crearPlantillasEjemplo();
+
+    invalidarCachePlantillas();
+
+    Logger.log('Estructura del sistema normalizada correctamente');
+    return { success: true, message: 'Estructura y plantillas normalizadas correctamente' };
+  } catch (error) {
+    Logger.log('Error en normalizarEstructuraSistema: ' + error.toString());
     return { success: false, error: error.toString() };
   }
 }
@@ -804,7 +930,8 @@ function crearConfiguracionEjemplo() {
     
     const firmantes = [
       ['FIR001', 'Evelyn Travezaño', 'Directora de Administración y Finanzas', 1, true],
-      ['FIR002', 'Jorge Herrera', 'Director Ejecutivo', 2, true]
+      ['FIR002', 'Jorge Herrera', 'Director Ejecutivo', 2, true],
+      ['FIR003', 'Equipo de Presupuesto', 'Oficina de Política, Planeamiento y Presupuesto', 3, true]
     ];
     sheetFirmantes.getRange(2, 1, firmantes.length, 5).setValues(firmantes);
   }

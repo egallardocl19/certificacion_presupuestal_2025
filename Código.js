@@ -383,11 +383,31 @@ function generarDocumentoCertificacion(codigoCertificacion) {
     if (!certificacion) {
       return { success: false, error: 'Certificación no encontrada' };
     }
-    
+
     // Crear documento básico que SIEMPRE funciona
     const doc = DocumentApp.create(`Certificacion_${codigoCertificacion}`);
     const body = doc.getBody();
-    
+
+    const folder = getCertificadosFolder();
+    if (folder) {
+      try {
+        const docFile = DriveApp.getFileById(doc.getId());
+        folder.addFile(docFile);
+        const parents = docFile.getParents();
+        const folderId = folder.getId();
+        const padresAEliminar = [];
+        while (parents.hasNext()) {
+          const parent = parents.next();
+          if (parent.getId() !== folderId) {
+            padresAEliminar.push(parent);
+          }
+        }
+        padresAEliminar.forEach(parent => parent.removeFile(docFile));
+      } catch (folderError) {
+        Logger.log('No se pudo mover el documento a la carpeta configurada: ' + folderError.toString());
+      }
+    }
+
     // Configurar márgenes
     body.setMarginTop(72);
     body.setMarginBottom(72);
@@ -503,10 +523,18 @@ function generarDocumentoCertificacion(codigoCertificacion) {
     doc.saveAndClose();
     
     // Generar PDF
-    const pdf = DriveApp.createFile(
-      doc.getAs(MimeType.PDF).setName(`Certificacion_${codigoCertificacion}.pdf`)
-    );
-    
+    let pdf;
+    try {
+      const pdfBlob = doc.getAs(MimeType.PDF);
+      pdfBlob.setName(`Certificacion_${codigoCertificacion}.pdf`);
+      pdf = folder ? folder.createFile(pdfBlob) : DriveApp.createFile(pdfBlob);
+    } catch (pdfError) {
+      Logger.log('No se pudo crear el PDF en la carpeta configurada: ' + pdfError.toString());
+      const fallbackBlob = doc.getAs(MimeType.PDF);
+      fallbackBlob.setName(`Certificacion_${codigoCertificacion}.pdf`);
+      pdf = DriveApp.createFile(fallbackBlob);
+    }
+
     // URLs
     const urlDocumento = `https://docs.google.com/document/d/${doc.getId()}/edit`;
     const urlPDF = `https://drive.google.com/file/d/${pdf.getId()}/view`;
@@ -1203,31 +1231,194 @@ function obtenerCatalogo(tipo) {
     for (let i = 1; i < data.length; i++) {
       const row = data[i];
       if (!row[0]) continue;
-      
-      if (tipo === 'plantillas') {
-        catalogo.push({
-          id: row[0],
-          nombre: row[1],
-          descripcion: row[2],
-          activa: row[3] !== false,
-          firmantes: row[4] || 1,
-          docId: row[5] || ''
-        });
-      } else {
-        catalogo.push({
-          codigo: row[0],
-          nombre: row[1],
-          descripcion: row[2] || '',
-          activo: row[3] !== false
-        });
-      }
+
+      catalogo.push({
+        codigo: row[0],
+        nombre: row[1],
+        descripcion: row[2] || '',
+        activo: row[3] !== false
+      });
     }
-    
-    return catalogo.filter(item => tipo === 'plantillas' ? item.activa : item.activo);
+
+    return catalogo.filter(item => item.activo);
   } catch (error) {
     Logger.log('Error en obtenerCatalogo: ' + error.toString());
     return [];
   }
+}
+
+function buildPlantillaHeaderMap(headers) {
+  const normalizedHeaders = headers.map(normalizeHeaderName);
+  const map = {};
+
+  PLANTILLAS_COLUMN_DEFINITIONS.forEach(definition => {
+    const aliases = Array.isArray(definition.aliases)
+      ? definition.aliases.map(normalizeHeaderName)
+      : [];
+
+    let index = -1;
+    for (let i = 0; i < aliases.length; i++) {
+      const aliasIndex = normalizedHeaders.indexOf(aliases[i]);
+      if (aliasIndex !== -1) {
+        index = aliasIndex;
+        break;
+      }
+    }
+
+    if (index === -1 && definition.defaultIndex >= 0 && definition.defaultIndex < headers.length) {
+      index = definition.defaultIndex;
+    }
+
+    map[definition.field] = index;
+  });
+
+  return map;
+}
+
+function getPlantillaFieldValue(row, headerMap, field, fallback = '') {
+  if (!headerMap || typeof headerMap[field] !== 'number') {
+    return fallback;
+  }
+
+  const index = headerMap[field];
+  if (index >= 0 && index < row.length) {
+    return row[index];
+  }
+
+  return fallback;
+}
+
+function extractGoogleResourceId(value) {
+  const texto = value === null || value === undefined ? '' : String(value).trim();
+  if (!texto) {
+    return '';
+  }
+
+  const match = texto.match(/[\w-]{25,}/);
+  return match ? match[0] : texto;
+}
+
+function parseBoolean(value, fallback = false) {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (value === null || value === undefined) {
+    return fallback;
+  }
+
+  const normalized = String(value).trim().toLowerCase();
+  if (!normalized) return fallback;
+
+  return ['true', '1', 'si', 'sí', 'activo', 'activa', 'yes'].indexOf(normalized) !== -1;
+}
+
+function obtenerPlantillasConfiguradas({ soloActivas = false } = {}) {
+  try {
+    const ahora = Date.now();
+    if (
+      plantillasCache &&
+      ahora - plantillasCacheTimestamp < PLANTILLAS_CACHE_TTL_MS &&
+      !soloActivas
+    ) {
+      return plantillasCache.slice();
+    }
+
+    const sheet = getSpreadsheet().getSheetByName(SHEET_NAMES.PLANTILLAS);
+    if (!sheet) {
+      Logger.log('La hoja "Plantillas" no existe.');
+      return [];
+    }
+
+    const data = sheet.getDataRange().getValues();
+    if (data.length <= 1) {
+      plantillasCache = [];
+      plantillasCacheTimestamp = ahora;
+      return [];
+    }
+
+    const headers = data[0] || [];
+    const headerMap = buildPlantillaHeaderMap(headers);
+
+    const plantillas = data.slice(1).map(row => {
+      const id = sanitizeText(getPlantillaFieldValue(row, headerMap, 'id'));
+      if (!id) {
+        return null;
+      }
+
+      const nombre = sanitizeText(getPlantillaFieldValue(row, headerMap, 'nombre'), id);
+      const descripcion = sanitizeText(getPlantillaFieldValue(row, headerMap, 'descripcion'));
+      const activa = parseBoolean(getPlantillaFieldValue(row, headerMap, 'activa'), true);
+      const firmantesRaw = parseNumber(getPlantillaFieldValue(row, headerMap, 'firmantes'), 1);
+      const firmantes = firmantesRaw > 0 ? Math.min(Math.round(firmantesRaw), 5) : 1;
+      const plantillaHtml = sanitizeText(getPlantillaFieldValue(row, headerMap, 'plantillaHtml'));
+      const docId = extractGoogleResourceId(plantillaHtml);
+      const firmanteId = sanitizeText(getPlantillaFieldValue(row, headerMap, 'firmanteId'));
+      const firmanteNombre = sanitizeText(getPlantillaFieldValue(row, headerMap, 'firmanteNombre'));
+      const firmanteCargo = sanitizeText(getPlantillaFieldValue(row, headerMap, 'firmanteCargo'));
+
+      return {
+        id,
+        nombre,
+        descripcion,
+        activa,
+        firmantes,
+        docId,
+        plantillaHtml,
+        firmanteId,
+        firmanteNombre,
+        firmanteCargo
+      };
+    }).filter(Boolean);
+
+    const plantillasOrdenadas = plantillas
+      .slice()
+      .sort((a, b) => {
+        if (a.activa !== b.activa) {
+          return a.activa ? -1 : 1;
+        }
+        return a.nombre.localeCompare(b.nombre || '', 'es', { sensitivity: 'base' });
+      });
+
+    plantillasCache = plantillasOrdenadas;
+    plantillasCacheTimestamp = ahora;
+
+    return soloActivas
+      ? plantillasOrdenadas.filter(plantilla => plantilla.activa)
+      : plantillasOrdenadas;
+  } catch (error) {
+    Logger.log('Error en obtenerPlantillasConfiguradas: ' + error.toString());
+    return [];
+  }
+}
+
+function getPlantillaConfigurada(plantillaId) {
+  if (!plantillaId) {
+    return null;
+  }
+
+  const plantillas = obtenerPlantillasConfiguradas();
+  return plantillas.find(plantilla => plantilla.id === plantillaId) || null;
+}
+
+function invalidarCachePlantillas() {
+  plantillasCache = null;
+  plantillasCacheTimestamp = 0;
+}
+
+function getCertificadosFolder() {
+  if (certificadosFolderCache) {
+    return certificadosFolderCache;
+  }
+
+  try {
+    certificadosFolderCache = DriveApp.getFolderById(CONFIG.CARPETA_CERTIFICADOS);
+  } catch (error) {
+    Logger.log('No se pudo acceder a la carpeta de certificados: ' + error.toString());
+    certificadosFolderCache = null;
+  }
+
+  return certificadosFolderCache;
 }
 
 // ===============================================
@@ -1316,9 +1507,11 @@ function recalcularTotalesCertificacion(codigoCertificacion) {
     const data = sheet.getDataRange().getValues();
 
     for (let i = 1; i < data.length; i++) {
-      if (data[i][0] === codigoCertificacion) {
-        sheet.getRange(i + 1, 16).setValue(total);
-        sheet.getRange(i + 1, 17).setValue(montoLetras);
+      const fila = data[i];
+      const codigoFila = sanitizeText(getCertificacionFieldValue(fila, headerMap, 'codigo'));
+      if (codigoFila === codigoCertificacion) {
+        sheet.getRange(i + 1, montoTotalCol).setValue(total);
+        sheet.getRange(i + 1, montoLetrasCol).setValue(montoLetras);
         break;
       }
     }
@@ -1821,6 +2014,26 @@ function generarCertificadoPerfecto(codigoCertificacion) {
     // Crear documento con el formato EXACTO del que me mostraste
     const doc = DocumentApp.create(`Certificacion_${codigoCertificacion}`);
     const body = doc.getBody();
+
+    const folder = getCertificadosFolder();
+    if (folder) {
+      try {
+        const docFile = DriveApp.getFileById(doc.getId());
+        folder.addFile(docFile);
+        const parents = docFile.getParents();
+        const folderId = folder.getId();
+        const padresAEliminar = [];
+        while (parents.hasNext()) {
+          const parent = parents.next();
+          if (parent.getId() !== folderId) {
+            padresAEliminar.push(parent);
+          }
+        }
+        padresAEliminar.forEach(parent => parent.removeFile(docFile));
+      } catch (folderError) {
+        Logger.log('No se pudo mover el documento perfecto a la carpeta configurada: ' + folderError.toString());
+      }
+    }
     
     // Configurar márgenes
     body.setMarginTop(50);
@@ -1998,9 +2211,17 @@ function generarCertificadoPerfecto(codigoCertificacion) {
     doc.saveAndClose();
     
     // Generar PDF
-    const pdf = DriveApp.createFile(
-      doc.getAs(MimeType.PDF).setName(`Certificacion_${codigoCertificacion}.pdf`)
-    );
+    let pdf;
+    try {
+      const pdfBlob = doc.getAs(MimeType.PDF);
+      pdfBlob.setName(`Certificacion_${codigoCertificacion}.pdf`);
+      pdf = folder ? folder.createFile(pdfBlob) : DriveApp.createFile(pdfBlob);
+    } catch (pdfError) {
+      Logger.log('No se pudo crear el PDF perfecto en la carpeta configurada: ' + pdfError.toString());
+      const fallbackBlob = doc.getAs(MimeType.PDF);
+      fallbackBlob.setName(`Certificacion_${codigoCertificacion}.pdf`);
+      pdf = DriveApp.createFile(fallbackBlob);
+    }
     
     // URLs
     const urlDocumento = `https://docs.google.com/document/d/${doc.getId()}/edit`;

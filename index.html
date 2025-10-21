@@ -662,12 +662,20 @@
                             <label for="fechaCertificacion">📅 Fecha de Certificación *</label>
                             <input type="date" id="fechaCertificacion" name="fechaCertificacion" required>
                         </div>
-                        
+
                         <div class="form-group">
                             <label for="oficina">🏢 Oficina *</label>
                             <select id="oficina" name="oficina" required>
                                 <option value="">Seleccione una oficina</option>
                             </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="plantilla">🧾 Plantilla de Certificación *</label>
+                            <select id="plantilla" name="plantilla" required>
+                                <option value="">Seleccione una plantilla</option>
+                            </select>
+                            <small style="display: block; margin-top: 6px; color: #555;">Las plantillas se administran en la pestaña de configuración.</small>
                         </div>
                     </div>
 
@@ -742,6 +750,8 @@
                             <option value="1" selected>1 Firmante</option>
                             <option value="2">2 Firmantes</option>
                             <option value="3">3 Firmantes</option>
+                            <option value="4">4 Firmantes</option>
+                            <option value="5">5 Firmantes</option>
                         </select>
                     </div>
                     <div id="firmantesContainer">
@@ -872,6 +882,7 @@
                 <button class="nav-tab" data-config="firmantes">✍️ Firmantes</button>
                 <button class="nav-tab" data-config="general">🔧 General</button>
                 <button class="nav-tab" data-config="catalogos">📚 Catálogos</button>
+                <button class="nav-tab" data-config="plantillas">🧾 Plantillas</button>
             </div>
 
             <div id="configContent">
@@ -1222,6 +1233,33 @@
                 if (valorActual) select.value = valorActual;
             });
 
+            const plantillaSelect = document.getElementById('plantilla');
+            if (plantillaSelect) {
+                const valorActual = plantillaSelect.value;
+                plantillaSelect.innerHTML = '<option value="">Seleccione una plantilla</option>';
+                catalogos.plantillas.forEach(plantilla => {
+                    if (plantilla.activa) {
+                        const option = document.createElement('option');
+                        option.value = plantilla.id;
+                        option.textContent = plantilla.nombre;
+                        option.dataset.firmantes = plantilla.firmantes || 1;
+                        option.dataset.firmanteNombre = plantilla.firmanteNombre || '';
+                        option.dataset.firmanteCargo = plantilla.firmanteCargo || '';
+                        option.dataset.firmanteId = plantilla.firmanteId || '';
+                        plantillaSelect.appendChild(option);
+                    }
+                });
+
+                if (valorActual && Array.from(plantillaSelect.options).some(opt => opt.value === valorActual)) {
+                    plantillaSelect.value = valorActual;
+                } else if (catalogos.plantillas.length > 0) {
+                    const primeraActiva = catalogos.plantillas.find(p => p.activa);
+                    if (primeraActiva) {
+                        plantillaSelect.value = primeraActiva.id;
+                    }
+                }
+            }
+
             // Solicitantes
             const selectoresSolicitante = document.querySelectorAll('#solicitanteId, #baseSolicitante');
             selectoresSolicitante.forEach(select => {
@@ -1275,6 +1313,7 @@
                             if (document.getElementById('itemsContainer').children.length === 0) {
                                 agregarItem();
                             }
+                            aplicarPlantillaSeleccionada();
                         }, 100);
                         break;
                     case 'configuracion':
@@ -1463,12 +1502,14 @@
             }
 
             // Cargar firmante por defecto para el primer firmante
-            if (cantidad >= 1 && catalogos.firmantes.length > 0) {
+            const plantillaSelect = document.getElementById('plantilla');
+            const usarDefault = !plantillaSelect || !plantillaSelect.value;
+            if (usarDefault && cantidad >= 1 && catalogos.firmantes.length > 0) {
                 const primerFirmante = catalogos.firmantes.find(f => f.orden === 1) || catalogos.firmantes[0];
                 const select = container.querySelector('[name="firmante1Id"]');
                 const nombreField = container.querySelector('[name="firmante1Nombre"]');
                 const cargoField = container.querySelector('[name="firmante1Cargo"]');
-                
+
                 if (select && primerFirmante) {
                     select.value = primerFirmante.id;
                     nombreField.value = primerFirmante.nombre;
@@ -1493,6 +1534,57 @@
             if (firmante) {
                 nombreField.value = firmante.nombre;
                 cargoField.value = firmante.cargo;
+            }
+        }
+
+        function aplicarPlantillaSeleccionada() {
+            const plantillaSelect = document.getElementById('plantilla');
+            if (!plantillaSelect) return;
+
+            const plantillaId = plantillaSelect.value;
+            const plantilla = catalogos.plantillas.find(p => p.id === plantillaId);
+
+            const cantidadFirmantesSelect = document.getElementById('cantidadFirmantes');
+            if (cantidadFirmantesSelect) {
+                const cantidad = plantilla ? Math.max(1, Math.min(parseInt(plantilla.firmantes, 10) || 1, 5)) : 1;
+                cantidadFirmantesSelect.value = cantidad.toString();
+            }
+
+            cargarFirmantes();
+
+            if (!plantilla) {
+                return;
+            }
+
+            const container = document.getElementById('firmantesContainer');
+            if (!container) return;
+
+            const selectFirmante = container.querySelector('[name="firmante1Id"]');
+            const nombreField = container.querySelector('[name="firmante1Nombre"]');
+            const cargoField = container.querySelector('[name="firmante1Cargo"]');
+
+            if (selectFirmante) {
+                let firmanteAsignado = null;
+                if (plantilla.firmanteId) {
+                    firmanteAsignado = catalogos.firmantes.find(f => f.id === plantilla.firmanteId);
+                }
+                if (!firmanteAsignado && plantilla.firmanteNombre) {
+                    firmanteAsignado = catalogos.firmantes.find(f => f.nombre === plantilla.firmanteNombre);
+                }
+
+                if (firmanteAsignado) {
+                    selectFirmante.value = firmanteAsignado.id;
+                    cargarDatosFirmante(1);
+                } else {
+                    selectFirmante.value = '';
+                }
+            }
+
+            if (nombreField && plantilla.firmanteNombre) {
+                nombreField.value = plantilla.firmanteNombre;
+            }
+            if (cargoField && plantilla.firmanteCargo) {
+                cargoField.value = plantilla.firmanteCargo;
             }
         }
 
@@ -1839,7 +1931,7 @@
             });
 
             // Validar datos básicos
-            if (!datos.fecha || !datos.descripcion || !datos.oficina || !datos.solicitante) {
+            if (!datos.fecha || !datos.descripcion || !datos.oficina || !datos.solicitante || !datos.plantilla) {
                 mostrarAlerta('Por favor, complete todos los campos obligatorios', 'error');
                 return;
             }
@@ -2037,6 +2129,9 @@ function renderConfiguracion(tipo) {
             break;
         case 'catalogos':
             mostrarConfigCatalogos(content);
+            break;
+        case 'plantillas':
+            mostrarConfigPlantillas(content);
             break;
         default:
             content.innerHTML = '<p>Sección no encontrada</p>';
@@ -2241,6 +2336,107 @@ function mostrarConfigCatalogos(content) {
         // Cargar primer subcatálogo por defecto
         cambiarSubcatalogo('iniciativas');
     }, 100);
+}
+
+function mostrarConfigPlantillas(content) {
+    const plantillas = catalogos.plantillas || [];
+
+    content.innerHTML = `
+        <div class="config-section">
+            <h3 style="color: #019952;">🧾 Plantillas de Certificación</h3>
+            <p>Administre las plantillas de certificación disponibles para los usuarios. Las plantillas activas se muestran en el formulario de nuevas certificaciones.</p>
+
+            <div class="action-buttons" style="margin-bottom: 20px;">
+                <button class="btn" onclick="normalizarEstructuraDesdeUI()">🔄 Normalizar estructura y plantillas</button>
+                <button class="btn btn-secondary" onclick="cambiarTab('nueva')">➕ Crear certificación con estas plantillas</button>
+            </div>
+
+            <div class="table-container">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Nombre</th>
+                            <th>Descripción</th>
+                            <th>Firmantes</th>
+                            <th>Estado</th>
+                            <th>Firmante Predeterminado</th>
+                            <th>Plantilla</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${plantillas.length === 0 ? `
+                            <tr>
+                                <td colspan="7" class="no-data">
+                                    <div>🧾</div>
+                                    <div>No hay plantillas activas configuradas.</div>
+                                    <div style="margin-top: 10px;">Use el botón "Normalizar" para restaurar las plantillas base.</div>
+                                </td>
+                            </tr>
+                        ` : plantillas.map(plantilla => {
+                            const url = plantilla.plantillaHtml || (plantilla.docId ? `https://docs.google.com/document/d/${plantilla.docId}/edit` : '');
+                            const estado = plantilla.activa ? 'Activa' : 'Inactiva';
+                            const estadoClase = plantilla.activa ? 'status-activa' : 'status-anulada';
+                            const firmanteTexto = plantilla.firmanteNombre ? `${plantilla.firmanteNombre}${plantilla.firmanteCargo ? ' - ' + plantilla.firmanteCargo : ''}` : 'Sin firmante asignado';
+                            return `
+                                <tr>
+                                    <td>${plantilla.id}</td>
+                                    <td>${plantilla.nombre}</td>
+                                    <td>${plantilla.descripcion || 'Sin descripción'}</td>
+                                    <td>${plantilla.firmantes || 1}</td>
+                                    <td><span class="status-badge ${estadoClase}">${estado}</span></td>
+                                    <td>${firmanteTexto}</td>
+                                    <td>
+                                        ${url ? `<a class="btn btn-secondary" href="${url}" target="_blank" style="padding: 6px 10px; font-size: 11px;">📄 Abrir</a>` : '<span style="color:#888;">Sin enlace</span>'}
+                                    </td>
+                                </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>
+
+            <p style="margin-top: 15px; color: #555;">Para personalizar una plantilla, edite la hoja "Plantillas" directamente en la planilla de Google Sheets o actualice el documento asociado.</p>
+        </div>
+    `;
+}
+
+function normalizarEstructuraDesdeUI() {
+    if (!confirm('¿Desea normalizar la estructura del sistema y restaurar las plantillas base? Esta acción no eliminará sus datos, pero puede restablecer encabezados y plantillas predeterminadas.')) {
+        return;
+    }
+
+    mostrarLoading(true, 'Normalizando estructura del sistema...');
+
+    google.script.run
+        .withSuccessHandler(resultado => {
+            mostrarLoading(false);
+            if (resultado && resultado.success) {
+                mostrarAlerta(resultado.message || 'Estructura normalizada correctamente.', 'success');
+                Promise.all([
+                    cargarCatalogos(),
+                    cargarCertificaciones(),
+                    cargarEstadisticasDashboard(),
+                    cargarConfiguracionInicial()
+                ]).then(() => {
+                    cargarTablaCertificaciones();
+                    cargarTablaCertificacionesRecientes();
+                    const tabActiva = document.querySelector('.nav-tab[data-config].active');
+                    if (tabActiva && tabActiva.getAttribute('data-config') === 'plantillas') {
+                        renderConfiguracion('plantillas');
+                    }
+                }).finally(() => {
+                    aplicarPlantillaSeleccionada();
+                });
+            } else {
+                mostrarAlerta((resultado && resultado.error) ? resultado.error : 'No se pudo normalizar la estructura.', 'error');
+            }
+        })
+        .withFailureHandler(error => {
+            mostrarLoading(false);
+            mostrarAlerta('Error al normalizar la estructura: ' + (error && error.message ? error.message : error), 'error');
+        })
+        .normalizarEstructuraSistema();
 }
 
 // Funciones JavaScript para el frontend (agregar al script del index.html):
