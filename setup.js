@@ -66,107 +66,6 @@ if (typeof ensureSheetStructure !== 'function') {
   };
 }
 
-if (typeof SHEET_NAMES === 'undefined') {
-  var SHEET_NAMES = {
-    CERTIFICACIONES: 'Certificaciones',
-    ITEMS: 'Items',
-    FIRMANTES: 'Firmantes',
-    CONFIG_SOLICITANTES: 'Config_Solicitantes',
-    CONFIG_FIRMANTES: 'Config_Firmantes',
-    CONFIG_GENERAL: 'Config_General',
-    CATALOGO_INICIATIVAS: 'Cat_Iniciativas',
-    CATALOGO_TIPOS: 'Cat_Tipos',
-    CATALOGO_FUENTES: 'Cat_Fuentes',
-    CATALOGO_FINALIDADES: 'Cat_Finalidades',
-    CATALOGO_OFICINAS: 'Cat_Oficinas',
-    PLANTILLAS: 'Plantillas',
-    BITACORA: 'Bitacora'
-  };
-}
-
-if (typeof CERTIFICACIONES_HEADERS === 'undefined') {
-  var CERTIFICACIONES_HEADERS = [
-    'Código',
-    'Fecha Emisión',
-    'Descripción',
-    'Iniciativa',
-    'Tipo',
-    'Fuente',
-    'Finalidad',
-    'Oficina',
-    'Solicitante',
-    'Cargo Solicitante',
-    'Email Solicitante',
-    'Número Autorización',
-    'Cargo Autorizador',
-    'Estado',
-    'Disposición/Base Legal',
-    'Monto Total',
-    'Monto en Letras',
-    'Fecha Creación',
-    'Creado Por',
-    'Fecha Modificación',
-    'Modificado Por',
-    'Fecha Anulación',
-    'Anulado Por',
-    'Motivo Anulación',
-    'Plantilla',
-    'URL Documento',
-    'URL PDF',
-    'Finalidad Detallada'
-  ];
-}
-
-if (typeof ITEMS_HEADERS === 'undefined') {
-  var ITEMS_HEADERS = [
-    'Código Certificación',
-    'Orden',
-    'Descripción',
-    'Cantidad',
-    'Unidad',
-    'Precio Unitario',
-    'Subtotal',
-    'Fecha Creación',
-    'Creado Por'
-  ];
-}
-
-if (typeof FIRMANTES_HEADERS === 'undefined') {
-  var FIRMANTES_HEADERS = [
-    'Código Certificación',
-    'Orden',
-    'Nombre',
-    'Cargo',
-    'Obligatorio',
-    'Fecha Creación',
-    'Creado Por'
-  ];
-}
-
-if (typeof BITACORA_HEADERS === 'undefined') {
-  var BITACORA_HEADERS = [
-    'Fecha',
-    'Usuario',
-    'Acción',
-    'Detalles',
-    'Usuario Completo'
-  ];
-}
-
-if (typeof PLANTILLAS_HEADERS === 'undefined') {
-  var PLANTILLAS_HEADERS = [
-    'ID',
-    'Nombre',
-    'Descripción',
-    'Activa',
-    'Firmantes',
-    'Plantilla HTML',
-    'Firmante ID',
-    'Firmante Nombre',
-    'Firmante Cargo'
-  ];
-}
-
 if (typeof ensureCertificacionesSheet !== 'function') {
   var ensureCertificacionesSheet = function () {
     return ensureSheetStructure(
@@ -465,6 +364,13 @@ function asegurarColumnasMinimas(sheet, cantidadColumnas) {
   }
 }
 
+function asegurarColumnasMinimas(sheet, cantidadColumnas) {
+  const columnasActuales = sheet.getMaxColumns();
+  if (columnasActuales < cantidadColumnas) {
+    sheet.insertColumnsAfter(columnasActuales, cantidadColumnas - columnasActuales);
+  }
+}
+
 function crearHojaItems(ss) {
   const headers = [
     'Código Certificación',
@@ -621,20 +527,17 @@ function crearHojaCatalogoOficinas(ss) {
 }
 
 function crearHojaPlantillas(ss) {
-  const headers = typeof PLANTILLAS_HEADERS !== 'undefined'
-    ? PLANTILLAS_HEADERS
-    : ['ID', 'Nombre', 'Descripción', 'Activa', 'Firmantes', 'Plantilla HTML', 'Firmante ID', 'Firmante Nombre', 'Firmante Cargo'];
-  const sheet = ensureSheetStructure(
-    SHEET_NAMES && SHEET_NAMES.PLANTILLAS ? SHEET_NAMES.PLANTILLAS : 'Plantillas',
-    headers
-  );
+  const sheet = ensureSheetStructure(SHEET_NAMES.PLANTILLAS, PLANTILLAS_HEADERS);
 
-  const headerRange = sheet.getRange(1, 1, 1, headers.length);
+  // Formatear encabezados sin eliminar datos existentes
+  const headerRange = sheet.getRange(1, 1, 1, PLANTILLAS_HEADERS.length);
   headerRange.setBackground('#f44336');
   headerRange.setFontColor('white');
   headerRange.setFontWeight('bold');
 
-  sheet.setFrozenRows(1);
+  if (sheet.getFrozenRows() < 1) {
+    sheet.setFrozenRows(1);
+  }
 
   Logger.log('Hoja de Plantillas creada o actualizada');
 }
@@ -828,46 +731,35 @@ function crearPlantillasEjemplo() {
     {
       id: 'plantilla_evelyn',
       nombre: 'Certificación - Evelyn Huaycacllo',
-      descripcion: 'Formato institucional firmado por la Jefa de Presupuesto',
+      descripcion: 'Certificación firmada por la Jefa de Presupuesto',
       activa: true,
       firmantes: 1,
       plantillaHtml: 'https://docs.google.com/document/d/PLANTILLA_EVELYN/edit',
-      firmanteId: 'FIR_EVELYN',
+      firmanteId: 'FIR001',
       firmanteNombre: 'Evelyn Elena Huaycacllo Marin',
       firmanteCargo: 'Jefa de la Oficina de Política, Planeamiento y Presupuesto'
     },
     {
-      id: 'plantilla_jorge',
-      nombre: 'Certificación - Jorge Herrera',
-      descripcion: 'Formato cuando el Director Ejecutivo autoriza la certificación',
+      id: 'plantilla_director',
+      nombre: 'Certificación - Director Ejecutivo',
+      descripcion: 'Certificación firmada por el Director Ejecutivo',
       activa: true,
       firmantes: 1,
-      plantillaHtml: 'https://docs.google.com/document/d/PLANTILLA_JORGE/edit',
-      firmanteId: 'FIR_JORGE',
-      firmanteNombre: 'Jorge Herrera',
+      plantillaHtml: 'https://docs.google.com/document/d/PLANTILLA_DIRECTOR/edit',
+      firmanteId: 'FIR002',
+      firmanteNombre: 'Padre Miguel Ángel Castillo Seminario',
       firmanteCargo: 'Director Ejecutivo'
     },
     {
-      id: 'plantilla_susana',
-      nombre: 'Certificación - Susana Palomino',
-      descripcion: 'Formato para coordinaciones de planeamiento y presupuesto',
+      id: 'plantilla_presupuestal',
+      nombre: 'Certificación - Equipo Presupuestal',
+      descripcion: 'Certificación emitida por el equipo de presupuesto y planeamiento',
       activa: true,
       firmantes: 1,
-      plantillaHtml: 'https://docs.google.com/document/d/PLANTILLA_SUSANA/edit',
-      firmanteId: 'FIR_SUSANA',
-      firmanteNombre: 'Susana Palomino',
-      firmanteCargo: 'Coordinadora de Planeamiento y Presupuesto'
-    },
-    {
-      id: 'plantilla_otro',
-      nombre: 'Certificación - Equipo Designado',
-      descripcion: 'Formato genérico para otras áreas responsables',
-      activa: true,
-      firmantes: 1,
-      plantillaHtml: 'https://docs.google.com/document/d/PLANTILLA_OTRO/edit',
-      firmanteId: 'FIR_OTRO',
-      firmanteNombre: 'Equipo Designado',
-      firmanteCargo: 'Responsable según tipo de certificación'
+      plantillaHtml: 'https://docs.google.com/document/d/PLANTILLA_PRESUPUESTO/edit',
+      firmanteId: 'FIR003',
+      firmanteNombre: 'Equipo de Presupuesto',
+      firmanteCargo: 'Oficina de Política, Planeamiento y Presupuesto'
     }
   ];
 
@@ -1105,10 +997,9 @@ function crearConfiguracionEjemplo() {
     }
 
     const firmantes = [
-      ['FIR_EVELYN', 'Evelyn Elena Huaycacllo Marin', 'Jefa de la Oficina de Política, Planeamiento y Presupuesto', 1, true],
-      ['FIR_JORGE', 'Jorge Herrera', 'Director Ejecutivo', 1, true],
-      ['FIR_SUSANA', 'Susana Palomino', 'Coordinadora de Planeamiento y Presupuesto', 1, true],
-      ['FIR_OTRO', 'Equipo Designado', 'Responsable según tipo de certificación', 1, true]
+      ['FIR001', 'Evelyn Travezaño', 'Directora de Administración y Finanzas', 1, true],
+      ['FIR002', 'Jorge Herrera', 'Director Ejecutivo', 2, true],
+      ['FIR003', 'Equipo de Presupuesto', 'Oficina de Política, Planeamiento y Presupuesto', 3, true]
     ];
     sheetFirmantes.getRange(2, 1, firmantes.length, 5).setValues(firmantes);
   }
