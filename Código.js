@@ -581,7 +581,7 @@ function obtenerCertificaciones(filtros = {}) {
     return certificaciones;
   } catch (error) {
     Logger.log('Error en obtenerCertificaciones: ' + error.toString());
-    return [];
+    throw new Error('No se pudieron obtener certificaciones: ' + error.message);
   }
 }
 
@@ -1003,7 +1003,9 @@ function crearItemsCertificacion(codigoCertificacion, items) {
       ];
       sheet.appendRow(fila);
     });
-    
+
+    SpreadsheetApp.flush();
+
     return { success: true };
   } catch (error) {
     Logger.log('Error en crearItemsCertificacion: ' + error.toString());
@@ -1235,7 +1237,7 @@ function obtenerCatalogo(tipo) {
 function obtenerEstadisticasDashboard() {
   try {
     const certificaciones = obtenerCertificaciones();
-    
+
     if (!certificaciones || certificaciones.length === 0) {
       return {
         success: true,
@@ -1257,7 +1259,7 @@ function obtenerEstadisticasDashboard() {
 
     const estadisticas = {
       total: certificaciones.length,
-      montoTotal: certificaciones.reduce((sum, cert) => sum + (cert.montoTotal || 0), 0),
+      montoTotal: certificaciones.reduce((sum, cert) => sum + parseNumber(cert.montoTotal, 0), 0),
       porEstado: {
         'Borrador': 0,
         'En revisión': 0,
@@ -1266,7 +1268,7 @@ function obtenerEstadisticasDashboard() {
         'Anulada': 0
       },
       porOficina: {},
-      certificacionesRecientes: certificaciones.slice(0, 10)
+      certificacionesRecientes: certificaciones.slice(0, 10).map(cert => ({ ...cert }))
     };
 
     // Contar por estado
@@ -1274,7 +1276,7 @@ function obtenerEstadisticasDashboard() {
       if (estadisticas.porEstado.hasOwnProperty(cert.estado)) {
         estadisticas.porEstado[cert.estado]++;
       }
-      
+
       // Contar por oficina
       const nombreOficina = obtenerNombreOficina(cert.oficina);
       estadisticas.porOficina[nombreOficina] = (estadisticas.porOficina[nombreOficina] || 0) + 1;
@@ -1307,13 +1309,12 @@ function obtenerEstadisticasDashboard() {
 function recalcularTotalesCertificacion(codigoCertificacion) {
   try {
     const items = obtenerItemsCertificacion(codigoCertificacion);
-    const total = items.reduce((sum, item) => sum + (item.subtotal || 0), 0);
-    const montoLetras = convertirNumeroALetras(total);
-    
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName('Certificaciones');
+    const total = items.reduce((sum, item) => sum + parseNumber(item.subtotal, 0), 0);
+    const montoLetras = convertirNumeroALetrasTexto(total);
+
+    const sheet = ensureCertificacionesSheet();
     const data = sheet.getDataRange().getValues();
-    
+
     for (let i = 1; i < data.length; i++) {
       if (data[i][0] === codigoCertificacion) {
         sheet.getRange(i + 1, 16).setValue(total);
@@ -1321,7 +1322,9 @@ function recalcularTotalesCertificacion(codigoCertificacion) {
         break;
       }
     }
-    
+
+    SpreadsheetApp.flush();
+
     return { success: true, total: total, montoLetras: montoLetras };
   } catch (error) {
     Logger.log('Error en recalcularTotalesCertificacion: ' + error.toString());
@@ -1329,82 +1332,133 @@ function recalcularTotalesCertificacion(codigoCertificacion) {
   }
 }
 
+function convertirNumeroALetrasTexto(numero) {
+  const cantidad = parseNumber(numero, 0);
+  if (cantidad === 0) {
+    return 'CERO CON 00/100 SOLES';
+  }
+
+  const unidades = ['', 'UNO', 'DOS', 'TRES', 'CUATRO', 'CINCO', 'SEIS', 'SIETE', 'OCHO', 'NUEVE'];
+  const decenas = ['', '', 'VEINTE', 'TREINTA', 'CUARENTA', 'CINCUENTA', 'SESENTA', 'SETENTA', 'OCHENTA', 'NOVENTA'];
+  const especiales = ['DIEZ', 'ONCE', 'DOCE', 'TRECE', 'CATORCE', 'QUINCE', 'DIECISÉIS', 'DIECISIETE', 'DIECIOCHO', 'DIECINUEVE'];
+  const centenas = ['', 'CIENTO', 'DOSCIENTOS', 'TRESCIENTOS', 'CUATROCIENTOS', 'QUINIENTOS', 'SEISCIENTOS', 'SETECIENTOS', 'OCHOCIENTOS', 'NOVECIENTOS'];
+
+  const entero = Math.floor(cantidad);
+  const decimales = Math.round((cantidad - entero) * 100);
+
+  function convertirGrupo(num) {
+    if (num === 0) return '';
+
+    let resultado = '';
+    const c = Math.floor(num / 100);
+    const d = Math.floor((num % 100) / 10);
+    const u = num % 10;
+
+    if (c > 0) {
+      if (c === 1 && d === 0 && u === 0) {
+        resultado += 'CIEN';
+      } else {
+        resultado += centenas[c];
+      }
+    }
+
+    if (d > 0) {
+      if (resultado) resultado += ' ';
+
+      if (d === 1) {
+        resultado += especiales[u];
+        return resultado;
+      }
+
+      if (d === 2 && u > 0) {
+        resultado += 'VEINTI';
+      } else {
+        resultado += decenas[d];
+      }
+    }
+
+    if (u > 0 && d !== 1) {
+      if (resultado) resultado += ' ';
+      if (d === 2) {
+        resultado += unidades[u].toLowerCase();
+      } else {
+        resultado += unidades[u];
+      }
+    }
+
+    if (!resultado) {
+      resultado = unidades[u];
+    }
+
+    return resultado.trim();
+  }
+
+  function convertirMiles(num) {
+    if (num === 0) return '';
+
+    const miles = Math.floor(num / 1000);
+    const resto = num % 1000;
+    let resultado = '';
+
+    if (miles > 0) {
+      if (miles === 1) {
+        resultado += 'MIL';
+      } else {
+        resultado += `${convertirGrupo(miles)} MIL`;
+      }
+    }
+
+    if (resto > 0) {
+      if (resultado) resultado += ' ';
+      resultado += convertirGrupo(resto);
+    }
+
+    return resultado.trim();
+  }
+
+  function convertirMillones(num) {
+    if (num === 0) return '';
+
+    const millones = Math.floor(num / 1000000);
+    const resto = num % 1000000;
+    let resultado = '';
+
+    if (millones > 0) {
+      if (millones === 1) {
+        resultado += 'UN MILLÓN';
+      } else {
+        resultado += `${convertirMiles(millones)} MILLONES`;
+      }
+    }
+
+    if (resto > 0) {
+      if (resultado) resultado += ' ';
+      resultado += convertirMiles(resto);
+    }
+
+    return resultado.trim();
+  }
+
+  const letras = convertirMillones(entero);
+  const decimalesTexto = decimales.toString().padStart(2, '0');
+
+  return `${letras || 'CERO'} CON ${decimalesTexto}/100 SOLES`;
+}
+
 function convertirNumeroALetras(numero) {
   try {
-    if (numero === 0) return 'CERO CON 00/100 SOLES';
-    
-    const unidades = ['', 'UNO', 'DOS', 'TRES', 'CUATRO', 'CINCO', 'SEIS', 'SIETE', 'OCHO', 'NUEVE'];
-    const decenas = ['', '', 'VEINTE', 'TREINTA', 'CUARENTA', 'CINCUENTA', 'SESENTA', 'SETENTA', 'OCHENTA', 'NOVENTA'];
-    const especiales = ['DIEZ', 'ONCE', 'DOCE', 'TRECE', 'CATORCE', 'QUINCE', 'DIECISÉIS', 'DIECISIETE', 'DIECIOCHO', 'DIECINUEVE'];
-    const centenas = ['', 'CIENTO', 'DOSCIENTOS', 'TRESCIENTOS', 'CUATROCIENTOS', 'QUINIENTOS', 'SEISCIENTOS', 'SETECIENTOS', 'OCHOCIENTOS', 'NOVECIENTOS'];
-    
-    const entero = Math.floor(numero);
-    const decimales = Math.round((numero - entero) * 100);
-    
-    function convertirGrupo(num) {
-      if (num === 0) return '';
-      
-      let resultado = '';
-      const c = Math.floor(num / 100);
-      const d = Math.floor((num % 100) / 10);
-      const u = num % 10;
-      
-      if (c > 0) {
-        if (c === 1 && d === 0 && u === 0) {
-          resultado += 'CIEN';
-        } else {
-          resultado += centenas[c];
-        }
-      }
-      
-      if (d > 0) {
-        if (d === 1 && u > 0) {
-          resultado += (resultado ? ' ' : '') + especiales[u];
-        } else {
-          resultado += (resultado ? ' ' : '') + decenas[d];
-          if (u > 0) {
-            resultado += (d === 2 ? '' : ' Y ') + unidades[u];
-          }
-        }
-      } else if (u > 0) {
-        resultado += (resultado ? ' ' : '') + unidades[u];
-      }
-      
-      return resultado;
-    }
-    
-    let resultado = '';
-    
-    if (entero >= 1000000) {
-      const millones = Math.floor(entero / 1000000);
-      resultado += convertirGrupo(millones);
-      if (millones === 1) {
-        resultado += ' MILLÓN';
-      } else {
-        resultado += ' MILLONES';
-      }
-      entero = entero % 1000000;
-    }
-    
-    if (entero >= 1000) {
-      const miles = Math.floor(entero / 1000);
-      if (miles > 1) {
-        resultado += (resultado ? ' ' : '') + convertirGrupo(miles) + ' MIL';
-      } else {
-        resultado += (resultado ? ' ' : '') + 'MIL';
-      }
-      entero = entero % 1000;
-    }
-    
-    if (entero > 0) {
-      resultado += (resultado ? ' ' : '') + convertirGrupo(entero);
-    }
-    
-    const decimalesStr = decimales.toString().padStart(2, '0');
-    return resultado + ` CON ${decimalesStr}/100 SOLES`;
+    const montoEnLetras = convertirNumeroALetrasTexto(numero);
+    return {
+      success: true,
+      montoLetras: montoEnLetras
+    };
   } catch (error) {
     Logger.log('Error en convertirNumeroALetras: ' + error.toString());
-    return 'ERROR EN CONVERSIÓN';
+    return {
+      success: false,
+      error: error.toString(),
+      montoLetras: 'CERO CON 00/100 SOLES'
+    };
   }
 }
 
@@ -1429,6 +1483,7 @@ function registrarActividad(accion, detalles = '') {
     ];
     
     sheet.appendRow(fila);
+    SpreadsheetApp.flush();
   } catch (error) {
     Logger.log('Error en registrarActividad: ' + error.toString());
   }

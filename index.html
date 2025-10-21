@@ -1051,7 +1051,12 @@
             return new Promise((resolve, reject) => {
                 google.script.run
                     .withSuccessHandler(data => {
-                        certificaciones = data || [];
+                        if (!Array.isArray(data)) {
+                            console.warn('Formato inesperado de certificaciones:', data);
+                            certificaciones = [];
+                        } else {
+                            certificaciones = data;
+                        }
                         console.log('Certificaciones cargadas:', certificaciones.length);
                         cargarTablaCertificaciones();
                         cargarTablaCertificacionesRecientes();
@@ -1700,8 +1705,16 @@
             // Convertir a letras
             google.script.run
                 .withSuccessHandler(resultado => {
-                    if (resultado && resultado.success) {
-                        document.getElementById('montoLetras').textContent = resultado.montoLetras;
+                    const montoElemento = document.getElementById('montoLetras');
+                    if (!montoElemento) return;
+
+                    if (typeof resultado === 'string') {
+                        montoElemento.textContent = resultado;
+                        return;
+                    }
+
+                    if (resultado && resultado.montoLetras) {
+                        montoElemento.textContent = resultado.montoLetras;
                     }
                 })
                 .withFailureHandler(error => {
