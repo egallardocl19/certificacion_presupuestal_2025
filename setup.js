@@ -3,18 +3,6 @@
 // Google Apps Script Setup
 // ===============================================
 
-const FINALIDAD_DETALLADA_ALIASES_PROPERTY = 'FINALIDAD_DETALLADA_ALIASES';
-const DEFAULT_FINALIDAD_DETALLADA_ALIASES = Object.freeze([
-  'finalidad detallada',
-  'finalidad detallada / justificación',
-  'finalidad detallada / justificacion',
-  'finalidad (detalle)',
-  'detalle de la finalidad',
-  'detalle finalidad',
-  'justificación',
-  'justificacion'
-]);
-
 function configurarSistema() {
   try {
     Logger.log('Iniciando configuración del sistema...');
@@ -35,6 +23,20 @@ function configurarSistema() {
   }
 }
 
+const getSetupDefaultFinalidadDetalladaAliases = (() => {
+  const defaults = Object.freeze([
+    'finalidad detallada',
+    'finalidad detallada / justificación',
+    'finalidad detallada / justificacion',
+    'finalidad (detalle)',
+    'detalle de la finalidad',
+    'detalle finalidad',
+    'justificación',
+    'justificacion'
+  ]);
+  return () => defaults;
+})();
+
 function asegurarPropiedadesDeScript() {
   const properties = PropertiesService.getScriptProperties();
   if (!properties) {
@@ -43,7 +45,7 @@ function asegurarPropiedadesDeScript() {
   }
 
   try {
-    const raw = properties.getProperty(FINALIDAD_DETALLADA_ALIASES_PROPERTY);
+    const raw = properties.getProperty('FINALIDAD_DETALLADA_ALIASES');
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
@@ -55,8 +57,8 @@ function asegurarPropiedadesDeScript() {
   }
 
   properties.setProperty(
-    FINALIDAD_DETALLADA_ALIASES_PROPERTY,
-    JSON.stringify(DEFAULT_FINALIDAD_DETALLADA_ALIASES)
+    'FINALIDAD_DETALLADA_ALIASES',
+    JSON.stringify(getSetupDefaultFinalidadDetalladaAliases())
   );
   Logger.log('Alias de finalidad detallada inicializados en las propiedades del script.');
 }

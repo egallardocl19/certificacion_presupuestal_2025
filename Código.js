@@ -15,18 +15,6 @@ const CONFIG = {
   CUSTOMER_ID: 'cus_T7t8xrMoWnLOgO'
 };
 
-const FINALIDAD_DETALLADA_ALIASES_PROPERTY = 'FINALIDAD_DETALLADA_ALIASES';
-const DEFAULT_FINALIDAD_DETALLADA_ALIASES = Object.freeze([
-  'finalidad detallada',
-  'finalidad detallada / justificación',
-  'finalidad detallada / justificacion',
-  'finalidad (detalle)',
-  'detalle de la finalidad',
-  'detalle finalidad',
-  'justificación',
-  'justificacion'
-]);
-
 const SHEET_NAMES = Object.freeze({
   CERTIFICACIONES: 'Certificaciones',
   ITEMS: 'Items',
@@ -104,18 +92,32 @@ function findColumnIndexByAliases(headers, aliases, fallbackIndex = -1) {
   return fallbackIndex;
 }
 
+const getDefaultFinalidadDetalladaAliases = (() => {
+  const defaults = Object.freeze([
+    'finalidad detallada',
+    'finalidad detallada / justificación',
+    'finalidad detallada / justificacion',
+    'finalidad (detalle)',
+    'detalle de la finalidad',
+    'detalle finalidad',
+    'justificación',
+    'justificacion'
+  ]);
+  return () => defaults;
+})();
+
 function getFinalidadDetalladaAliases() {
   try {
     const properties = PropertiesService.getScriptProperties();
-    const rawAliases = properties.getProperty(FINALIDAD_DETALLADA_ALIASES_PROPERTY);
+    const rawAliases = properties.getProperty('FINALIDAD_DETALLADA_ALIASES');
 
     if (!rawAliases) {
-      return DEFAULT_FINALIDAD_DETALLADA_ALIASES;
+      return getDefaultFinalidadDetalladaAliases();
     }
 
     const parsedAliases = JSON.parse(rawAliases);
     if (!Array.isArray(parsedAliases)) {
-      return DEFAULT_FINALIDAD_DETALLADA_ALIASES;
+      return getDefaultFinalidadDetalladaAliases();
     }
 
     const normalizedAliases = parsedAliases
@@ -123,10 +125,10 @@ function getFinalidadDetalladaAliases() {
       .filter(Boolean);
 
     const uniqueAliases = Array.from(new Set(normalizedAliases));
-    return uniqueAliases.length > 0 ? uniqueAliases : DEFAULT_FINALIDAD_DETALLADA_ALIASES;
+    return uniqueAliases.length > 0 ? uniqueAliases : getDefaultFinalidadDetalladaAliases();
   } catch (error) {
     Logger.log('No se pudieron obtener alias personalizados de finalidad detallada: ' + error.toString());
-    return DEFAULT_FINALIDAD_DETALLADA_ALIASES;
+    return getDefaultFinalidadDetalladaAliases();
   }
 }
 
