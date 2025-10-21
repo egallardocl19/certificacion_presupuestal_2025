@@ -1066,7 +1066,6 @@
                         console.error('Error cargando certificaciones:', error);
                         certificaciones = [];
                         cargarTablaCertificaciones();
-                        mostrarAlerta('No se pudieron cargar las certificaciones: ' + (error && error.message ? error.message : 'Error desconocido'), 'error');
                         reject(error);
                     })
                     .obtenerCertificaciones();

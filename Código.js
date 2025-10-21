@@ -50,77 +50,6 @@ const PLANTILLA_FIRMANTES = Object.freeze({
   }
 });
 
-const DEFAULT_TIMEZONE = (() => {
-  try {
-    const tz = Session.getScriptTimeZone();
-    return tz || 'America/Lima';
-  } catch (error) {
-    Logger.log('No se pudo obtener la zona horaria del script: ' + error.toString());
-    return 'America/Lima';
-  }
-})();
-
-const CERTIFICACIONES_HEADERS = Object.freeze([
-  'Código',
-  'Fecha Emisión',
-  'Descripción',
-  'Iniciativa',
-  'Tipo',
-  'Fuente',
-  'Finalidad',
-  'Oficina',
-  'Solicitante',
-  'Cargo Solicitante',
-  'Email Solicitante',
-  'Número Autorización',
-  'Cargo Autorizador',
-  'Estado',
-  'Disposición/Base Legal',
-  'Monto Total',
-  'Monto en Letras',
-  'Fecha Creación',
-  'Creado Por',
-  'Fecha Modificación',
-  'Modificado Por',
-  'Fecha Anulación',
-  'Anulado Por',
-  'Motivo Anulación',
-  'Plantilla',
-  'URL Documento',
-  'URL PDF',
-  'Finalidad Detallada'
-]);
-
-const ITEMS_HEADERS = Object.freeze([
-  'Código Certificación',
-  'Orden',
-  'Descripción',
-  'Cantidad',
-  'Unidad',
-  'Precio Unitario',
-  'Subtotal',
-  'Fecha Creación',
-  'Creado Por'
-]);
-
-const FIRMANTES_HEADERS = Object.freeze([
-  'Código Certificación',
-  'Orden',
-  'Nombre',
-  'Cargo',
-  'Obligatorio',
-  'Fecha Creación',
-  'Creado Por'
-]);
-
-const BITACORA_HEADERS = Object.freeze([
-  'Fecha',
-  'Usuario',
-  'Acción',
-  'Detalles',
-  'Usuario Completo'
-]);
-
 function getSpreadsheet() {
   return SpreadsheetApp.getActiveSpreadsheet();
 }
@@ -215,61 +144,6 @@ function getFinalidadDetalladaColumnIndex(sheet) {
   return index >= lastColumn ? -1 : index;
 }
 
-function ensureSheetStructure(name, headers) {
-  const ss = getSpreadsheet();
-  let sheet = ss.getSheetByName(name);
-
-  if (!sheet) {
-    sheet = ss.insertSheet(name);
-  }
-
-  const requiredColumns = headers.length;
-  const maxColumns = sheet.getMaxColumns();
-  if (maxColumns < requiredColumns) {
-    sheet.insertColumnsAfter(maxColumns, requiredColumns - maxColumns);
-  }
-
-  const headerRange = sheet.getRange(1, 1, 1, requiredColumns);
-  const currentHeaders = headerRange.getValues()[0];
-
-  let needsUpdate = false;
-  const normalizedTarget = headers.map(normalizeHeaderName);
-  const normalizedCurrent = currentHeaders.map(normalizeHeaderName);
-
-  for (let i = 0; i < headers.length; i++) {
-    if (normalizedCurrent[i] !== normalizedTarget[i]) {
-      needsUpdate = true;
-      break;
-    }
-  }
-
-  if (needsUpdate) {
-    headerRange.setValues([headers]);
-  }
-
-  if (sheet.getFrozenRows() < 1) {
-    sheet.setFrozenRows(1);
-  }
-
-  return sheet;
-}
-
-function ensureCertificacionesSheet() {
-  return ensureSheetStructure(SHEET_NAMES.CERTIFICACIONES, CERTIFICACIONES_HEADERS);
-}
-
-function ensureItemsSheet() {
-  return ensureSheetStructure(SHEET_NAMES.ITEMS, ITEMS_HEADERS);
-}
-
-function ensureFirmantesSheet() {
-  return ensureSheetStructure(SHEET_NAMES.FIRMANTES, FIRMANTES_HEADERS);
-}
-
-function ensureBitacoraSheet() {
-  return ensureSheetStructure(SHEET_NAMES.BITACORA, BITACORA_HEADERS);
-}
-
 function getActiveUserEmail() {
   try {
     const email = Session.getActiveUser().getEmail();
@@ -285,32 +159,6 @@ function sanitizeText(value, fallback = '') {
     return fallback;
   }
   return String(value).trim();
-}
-
-function toDate(value) {
-  if (!value) return null;
-  const date = value instanceof Date ? new Date(value.getTime()) : new Date(value);
-  return isNaN(date.getTime()) ? null : date;
-}
-
-function formatDateForClient(value) {
-  const date = toDate(value);
-  if (!date) return '';
-  return Utilities.formatDate(date, DEFAULT_TIMEZONE, 'yyyy-MM-dd');
-}
-
-function formatDateTimeForClient(value) {
-  const date = toDate(value);
-  if (!date) return '';
-  return Utilities.formatDate(date, DEFAULT_TIMEZONE, "yyyy-MM-dd'T'HH:mm:ss");
-}
-
-function parseNumber(value, fallback = 0) {
-  if (value === null || value === undefined || value === '') {
-    return fallback;
-  }
-  const numberValue = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(numberValue) ? numberValue : fallback;
 }
 
 function parseDate(value, fallback = new Date()) {
@@ -376,50 +224,35 @@ function normalizarItemCertificacion(item) {
 
 function mapRowToCertificacion(row, index, finalidadDetalladaIndex = -1) {
   const tieneFinalidadDetallada = finalidadDetalladaIndex >= 0 && finalidadDetalladaIndex < row.length;
-  const fechaEmisionDate = toDate(row[1]);
-  const fechaCreacionDate = toDate(row[17]);
-  const fechaModificacionDate = toDate(row[19]);
-  const fechaAnulacionDate = toDate(row[21]);
-
-  const finalidad = sanitizeText(row[6]);
-  const finalidadDetallada = sanitizeText(
-    tieneFinalidadDetallada ? row[finalidadDetalladaIndex] : '',
-    finalidad
-  ) || finalidad;
-
   return {
-    codigo: sanitizeText(row[0]),
-    fechaEmision: formatDateForClient(fechaEmisionDate),
-    fechaEmisionTimestamp: fechaEmisionDate ? fechaEmisionDate.getTime() : null,
-    descripcion: sanitizeText(row[2]),
-    iniciativa: sanitizeText(row[3]),
-    tipo: sanitizeText(row[4]),
-    fuente: sanitizeText(row[5]),
-    finalidad,
-    oficina: sanitizeText(row[7]),
-    solicitante: sanitizeText(row[8]),
-    cargoSolicitante: sanitizeText(row[9]),
-    emailSolicitante: sanitizeText(row[10]),
-    numeroAutorizacion: sanitizeText(row[11]),
-    cargoAutorizador: sanitizeText(row[12]),
-    estado: sanitizeText(row[13], ESTADOS.BORRADOR) || ESTADOS.BORRADOR,
-    disposicion: sanitizeText(row[14]),
-    montoTotal: parseNumber(row[15], 0),
-    montoLetras: sanitizeText(row[16]),
-    fechaCreacion: formatDateTimeForClient(fechaCreacionDate),
-    fechaCreacionTimestamp: fechaCreacionDate ? fechaCreacionDate.getTime() : null,
-    creadoPor: sanitizeText(row[18]),
-    fechaModificacion: formatDateTimeForClient(fechaModificacionDate),
-    fechaModificacionTimestamp: fechaModificacionDate ? fechaModificacionDate.getTime() : null,
-    modificadoPor: sanitizeText(row[20]),
-    fechaAnulacion: formatDateForClient(fechaAnulacionDate),
-    fechaAnulacionTimestamp: fechaAnulacionDate ? fechaAnulacionDate.getTime() : null,
-    anuladoPor: sanitizeText(row[22]),
-    motivoAnulacion: sanitizeText(row[23]),
-    plantilla: sanitizeText(row[24]) || 'plantilla_evelyn',
-    urlDocumento: sanitizeText(row[25]),
-    urlPDF: sanitizeText(row[26]),
-    finalidadDetallada,
+    codigo: row[0],
+    fechaEmision: row[1],
+    descripcion: row[2],
+    iniciativa: row[3],
+    tipo: row[4],
+    fuente: row[5],
+    finalidad: row[6],
+    oficina: row[7],
+    solicitante: row[8],
+    cargoSolicitante: row[9],
+    emailSolicitante: row[10],
+    numeroAutorizacion: row[11],
+    cargoAutorizador: row[12],
+    estado: row[13],
+    disposicion: row[14],
+    montoTotal: row[15] || 0,
+    montoLetras: row[16],
+    fechaCreacion: row[17],
+    creadoPor: row[18],
+    fechaModificacion: row[19],
+    modificadoPor: row[20],
+    fechaAnulacion: row[21],
+    anuladoPor: row[22],
+    motivoAnulacion: row[23],
+    plantilla: row[24],
+    urlDocumento: row[25],
+    urlPDF: row[26],
+    finalidadDetallada: tieneFinalidadDetallada ? row[finalidadDetalladaIndex] : '',
     fila: index + 1
   };
 }
@@ -462,7 +295,7 @@ function include(filename) {
 
 function crearCertificacion(datos) {
   try {
-    const sheet = ensureCertificacionesSheet();
+    const sheet = getSheetOrThrow(SHEET_NAMES.CERTIFICACIONES);
 
     Logger.log('Creando certificación con datos: ' + JSON.stringify(datos));
 
@@ -508,12 +341,7 @@ function crearCertificacion(datos) {
       finalidadDetallada
     ];
 
-    while (fila.length < CERTIFICACIONES_HEADERS.length) {
-      fila.push('');
-    }
-
     sheet.appendRow(fila);
-    SpreadsheetApp.flush();
 
     if (datosCompletos.items.length > 0) {
       crearItemsCertificacion(codigo, datosCompletos.items);
@@ -530,12 +358,9 @@ function crearCertificacion(datos) {
 
     registrarActividad('CREAR_CERTIFICACION', `Código: ${codigo}`);
 
-    const certificacionActualizada = obtenerCertificacionPorCodigo(codigo);
-
     return {
       success: true,
       codigo,
-      certificacion: certificacionActualizada,
       certificado: resultadoGeneracion,
       urls: {
         documento: resultadoGeneracion.success ? resultadoGeneracion.urlDocumento : null,
@@ -716,7 +541,7 @@ function generarDocumentoCertificacion(codigoCertificacion) {
 
 function obtenerCertificaciones(filtros = {}) {
   try {
-    const sheet = ensureCertificacionesSheet();
+    const sheet = getSheetOrThrow(SHEET_NAMES.CERTIFICACIONES);
     const data = getSheetValues(sheet);
 
     if (data.length <= 1) return [];
@@ -736,51 +561,24 @@ function obtenerCertificaciones(filtros = {}) {
         }
         return mapRowToCertificacion(row, index + 1, finalidadDetalladaIndex);
       })
-      .filter(Boolean);
-
-    const fechaDesde = toDate(filtros.fechaDesde);
-    const fechaHasta = toDate(filtros.fechaHasta);
-
-    const filtradas = certificaciones.filter(cert => {
-      if (filtros.estado && cert.estado !== filtros.estado) return false;
-      if (filtros.oficina && cert.oficina !== filtros.oficina) return false;
-
-      if (fechaDesde) {
-        const fechaCert = toDate(cert.fechaEmision || cert.fechaCreacion);
-        if (fechaCert && fechaCert < fechaDesde) return false;
-      }
-
-      if (fechaHasta) {
-        const fechaCert = toDate(cert.fechaEmision || cert.fechaCreacion);
-        if (fechaCert && fechaCert > fechaHasta) return false;
-      }
-
-      if (filtros.busqueda) {
-        const busqueda = sanitizeText(filtros.busqueda).toLowerCase();
-        const coincideBusqueda =
-          (cert.codigo || '').toLowerCase().includes(busqueda) ||
-          (cert.descripcion || '').toLowerCase().includes(busqueda) ||
-          (cert.solicitante || '').toLowerCase().includes(busqueda);
-        if (!coincideBusqueda) {
-          return false;
+      .filter(Boolean)
+      .filter(cert => {
+        if (filtros.estado && cert.estado !== filtros.estado) return false;
+        if (filtros.oficina && cert.oficina !== filtros.oficina) return false;
+        if (filtros.busqueda) {
+          const busqueda = filtros.busqueda.toLowerCase();
+          const coincideBusqueda =
+            (cert.codigo || '').toLowerCase().includes(busqueda) ||
+            (cert.descripcion || '').toLowerCase().includes(busqueda) ||
+            (cert.solicitante || '').toLowerCase().includes(busqueda);
+          if (!coincideBusqueda) {
+            return false;
+          }
         }
-      }
-
-      return true;
-    });
-
-    const ordenadas = filtradas
-      .slice()
-      .sort((a, b) => {
-        const fechaA = a.fechaEmisionTimestamp || a.fechaCreacionTimestamp || 0;
-        const fechaB = b.fechaEmisionTimestamp || b.fechaCreacionTimestamp || 0;
-        if (fechaA !== fechaB) {
-          return fechaB - fechaA;
-        }
-        return (b.codigo || '').localeCompare(a.codigo || '');
+        return true;
       });
 
-    return ordenadas;
+    return certificaciones;
   } catch (error) {
     Logger.log('Error en obtenerCertificaciones: ' + error.toString());
     throw new Error('No se pudieron obtener certificaciones: ' + error.message);
@@ -808,7 +606,7 @@ function obtenerCertificacionPorCodigo(codigo) {
 
 function actualizarCertificacion(codigo, datos) {
   try {
-    const sheet = ensureCertificacionesSheet();
+    const sheet = getSheetOrThrow(SHEET_NAMES.CERTIFICACIONES);
     const dataRange = sheet.getDataRange();
     const values = dataRange.getValues();
     const filaIndex = findRowIndex(values, 0, codigo);
@@ -866,7 +664,6 @@ function actualizarCertificacion(codigo, datos) {
     }
 
     dataRange.setValues(values);
-    SpreadsheetApp.flush();
 
     if (datos.items) {
       eliminarItemsCertificacion(codigo);
@@ -1189,7 +986,7 @@ function generarCodigoCertificacionConsecutivo() {
 
 function crearItemsCertificacion(codigoCertificacion, items) {
   try {
-    const sheet = ensureItemsSheet();
+    const sheet = getSheetOrThrow(SHEET_NAMES.ITEMS);
 
     items.forEach((item, index) => {
       const subtotal = (item.cantidad || 0) * (item.precioUnitario || 0);
@@ -1278,7 +1075,7 @@ function eliminarItemsCertificacion(codigoCertificacion) {
 
 function crearFirmantesCertificacion(codigoCertificacion, firmantes) {
   try {
-    const sheet = ensureFirmantesSheet();
+    const sheet = getSheetOrThrow(SHEET_NAMES.FIRMANTES);
 
     firmantes.forEach((firmante, index) => {
       const fila = [
@@ -1292,8 +1089,6 @@ function crearFirmantesCertificacion(codigoCertificacion, firmantes) {
       ];
       sheet.appendRow(fila);
     });
-
-    SpreadsheetApp.flush();
 
     return { success: true };
   } catch (error) {
@@ -1673,7 +1468,8 @@ function convertirNumeroALetras(numero) {
 
 function registrarActividad(accion, detalles = '') {
   try {
-    const sheet = ensureBitacoraSheet();
+    const sheet = getSpreadsheet().getSheetByName(SHEET_NAMES.BITACORA);
+    if (!sheet) return;
 
     const usuario = getActiveUserEmail();
     const fecha = new Date();
