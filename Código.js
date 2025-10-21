@@ -1,172 +1,282 @@
-var CP = typeof CP !== 'undefined' ? CP : {};
+// ===============================================
+// SISTEMA DE CERTIFICACIONES PRESUPUESTALES
+// Google Apps Script Backend - COMPLETO Y LIMPIO
+// Cáritas Lima - Versión Final
+// ===============================================
 
-// =============================================================
-// Núcleo de configuración y constantes
-// =============================================================
-(function (namespace) {
-  const SHEETS = Object.freeze({
-    CERTIFICACIONES: 'Certificaciones',
-    ITEMS: 'Items',
-    FIRMANTES: 'Firmantes',
-    CONFIG_SOLICITANTES: 'Config_Solicitantes',
-    CONFIG_FIRMANTES: 'Config_Firmantes',
-    CONFIG_GENERAL: 'Config_General',
-    CATALOGO_INICIATIVAS: 'Cat_Iniciativas',
-    CATALOGO_TIPOS: 'Cat_Tipos',
-    CATALOGO_FUENTES: 'Cat_Fuentes',
-    CATALOGO_FINALIDADES: 'Cat_Finalidades',
-    CATALOGO_OFICINAS: 'Cat_Oficinas',
-    PLANTILLAS: 'Plantillas',
-    BITACORA: 'Bitacora'
-  });
+// Configuración global
+const CONFIG = {
+  SPREADSHEET_ID: SpreadsheetApp.getActiveSpreadsheet().getId(),
+  DRIVE_FOLDER_NAME: 'Certificaciones Presupuestales - Cáritas Lima',
+  CARPETA_PLANTILLAS: '1DXyPgOvEn4o-qPT945V_y7ctSQVnV8ce',
+  CARPETA_CERTIFICADOS: '1RJ4Ts7fATs_q3IINPTlLK6VHEl4l8hG3',
+  AI_ENDPOINT: 'https://oi-server.onrender.com/chat/completions',
+  AI_MODEL: 'openrouter/claude-sonnet-4',
+  CUSTOMER_ID: 'cus_T7t8xrMoWnLOgO'
+};
 
-  const HEADERS = Object.freeze({
-    CERTIFICACIONES: [
-      'Código',
-      'Fecha Emisión',
-      'Descripción',
-      'Iniciativa',
-      'Tipo',
-      'Fuente',
-      'Finalidad',
-      'Oficina',
-      'Solicitante',
-      'Cargo Solicitante',
-      'Email Solicitante',
-      'Número Autorización',
-      'Cargo Autorizador',
-      'Estado',
-      'Disposición/Base Legal',
-      'Monto Total',
-      'Monto en Letras',
-      'Fecha Creación',
-      'Creado Por',
-      'Fecha Modificación',
-      'Modificado Por',
-      'Fecha Anulación',
-      'Anulado Por',
-      'Motivo Anulación',
-      'Plantilla',
-      'URL Documento',
-      'URL PDF',
-      'Finalidad Detallada'
-    ],
-    ITEMS: [
-      'Código Certificación',
-      'Orden',
-      'Descripción',
-      'Cantidad',
-      'Unidad',
-      'Precio Unitario',
-      'Subtotal',
-      'Fecha Creación',
-      'Creado Por'
-    ],
-    FIRMANTES: [
-      'Código Certificación',
-      'Orden',
-      'Nombre',
-      'Cargo',
-      'Obligatorio',
-      'Fecha Creación',
-      'Creado Por'
-    ],
-    CATALOGOS: ['ID', 'Nombre', 'Descripción', 'Activo', 'Extra 1', 'Extra 2'],
-    PLANTILLAS: [
-      'ID',
-      'Nombre',
-      'Descripción',
-      'Activa',
-      'Firmantes',
-      'Plantilla HTML',
-      'Firmante ID',
-      'Firmante Nombre',
-      'Firmante Cargo'
-    ],
-    CONFIG_GENERAL: ['Clave', 'Valor', 'Descripción'],
-    BITACORA: ['Fecha', 'Usuario', 'Acción', 'Detalles', 'Usuario Completo']
-  });
+const SHEET_NAMES = Object.freeze({
+  CERTIFICACIONES: 'Certificaciones',
+  ITEMS: 'Items',
+  FIRMANTES: 'Firmantes',
+  CONFIG_SOLICITANTES: 'Config_Solicitantes',
+  CONFIG_FIRMANTES: 'Config_Firmantes',
+  CONFIG_GENERAL: 'Config_General',
+  CATALOGO_INICIATIVAS: 'Cat_Iniciativas',
+  CATALOGO_TIPOS: 'Cat_Tipos',
+  CATALOGO_FUENTES: 'Cat_Fuentes',
+  CATALOGO_FINALIDADES: 'Cat_Finalidades',
+  CATALOGO_OFICINAS: 'Cat_Oficinas',
+  PLANTILLAS: 'Plantillas',
+  BITACORA: 'Bitacora'
+});
 
-  const FOLDERS = Object.freeze({
-    PLANTILLAS: '1DXyPgOvEn4o-qPT945V_y7ctSQVnV8ce',
-    CERTIFICACIONES: '1RJ4Ts7fATs_q3IINPTlLK6VHEl4l8hG3'
-  });
+const PLANTILLA_FIRMANTES = Object.freeze({
+  plantilla_evelyn: {
+    nombre: 'Evelyn Elena Huaycacllo Marin',
+    cargo: 'Jefa de la Oficina de Política, Planeamiento y Presupuesto'
+  },
+  plantilla_jorge: {
+    nombre: 'Jorge Herrera',
+    cargo: 'Director Ejecutivo'
+  },
+  plantilla_director: {
+    nombre: 'Padre Miguel Ángel Castillo Seminario',
+    cargo: 'Director Ejecutivo'
+  },
+  plantilla_1_firmante: {
+    nombre: 'Evelyn Elena Huaycacllo Marin',
+    cargo: 'Jefa de la Oficina de Política, Planeamiento y Presupuesto'
+  }
+});
 
-  const SCRIPT_PROPERTIES = Object.freeze({
-    FINALIDAD_ALIASES: 'FINALIDAD_DETALLADA_ALIASES',
-    PLANTILLA_CACHE: 'CP_PLANTILLAS_CACHE'
-  });
+function getSpreadsheet() {
+  return SpreadsheetApp.getActiveSpreadsheet();
+}
 
-  const DEFAULT_TIMEZONE = (function () {
-    try {
-      return Session.getScriptTimeZone() || 'America/Lima';
-    } catch (error) {
-      Logger.log('Fallo obteniendo zona horaria, se usa America/Lima: ' + error);
-      return 'America/Lima';
+function getSheetOrThrow(name) {
+  const sheet = getSpreadsheet().getSheetByName(name);
+  if (!sheet) {
+    throw new Error(`La hoja "${name}" no existe. Ejecute configurarSistema() primero.`);
+  }
+  return sheet;
+}
+
+function getSheetValues(sheet) {
+  return sheet.getDataRange().getValues();
+}
+
+function findRowIndex(values, columnIndex, value) {
+  for (let i = 1; i < values.length; i++) {
+    if (values[i][columnIndex] === value) {
+      return i;
     }
-  })();
+  }
+  return -1;
+}
 
-  const DEFAULT_TEMPLATES = Object.freeze([
-    {
-      id: 'plantilla_evelyn',
-      nombre: 'Certificación Evelyn',
-      descripcion: 'Formato oficial con firma de Evelyn Elena Huaycacllo Marín',
-      firmantes: 3,
-      activa: true,
-      firmanteId: 'firmante_evelyn',
-      firmanteNombre: 'Evelyn Elena Huaycacllo Marín',
-      firmanteCargo: 'Jefa de la Oficina de Política, Planeamiento y Presupuesto'
-    },
-    {
-      id: 'plantilla_jorge',
-      nombre: 'Certificación Jorge',
-      descripcion: 'Formato oficial con firma de Jorge Herrera',
-      firmantes: 3,
-      activa: true,
-      firmanteId: 'firmante_jorge',
-      firmanteNombre: 'Jorge Herrera',
-      firmanteCargo: 'Director Ejecutivo'
-    },
-    {
-      id: 'plantilla_susana',
-      nombre: 'Certificación Susana',
-      descripcion: 'Formato oficial con firma de Susana Palomino',
-      firmantes: 3,
-      activa: true,
-      firmanteId: 'firmante_susana',
-      firmanteNombre: 'Susana Palomino',
-      firmanteCargo: 'Coordinadora de Planeamiento y Presupuesto'
-    },
-    {
-      id: 'plantilla_equipo',
-      nombre: 'Certificación Equipo Designado',
-      descripcion: 'Formato oficial para equipos designados',
-      firmantes: 3,
-      activa: true,
-      firmanteId: 'firmante_equipo',
-      firmanteNombre: 'Equipo Designado',
-      firmanteCargo: 'Responsable según certificación'
+function normalizeHeaderName(value) {
+  return (value === null || value === undefined)
+    ? ''
+    : String(value).trim().toLowerCase();
+}
+
+function findColumnIndexByAliases(headers, aliases, fallbackIndex = -1) {
+  const normalizedHeaders = headers.map(normalizeHeaderName);
+  for (const alias of aliases) {
+    const index = normalizedHeaders.indexOf(alias);
+    if (index !== -1) {
+      return index;
     }
+  }
+  return fallbackIndex;
+}
+
+const getDefaultFinalidadDetalladaAliases = (() => {
+  const defaults = Object.freeze([
+    'finalidad detallada',
+    'finalidad detallada / justificación',
+    'finalidad detallada / justificacion',
+    'finalidad (detalle)',
+    'detalle de la finalidad',
+    'detalle finalidad',
+    'justificación',
+    'justificacion'
   ]);
+  return () => defaults;
+})();
 
-  namespace.Constants = Object.freeze({
-    SHEETS,
-    HEADERS,
-    FOLDERS,
-    SCRIPT_PROPERTIES,
-    DEFAULT_TIMEZONE,
-    DEFAULT_TEMPLATES
-  });
-})(CP);
+function getFinalidadDetalladaAliases() {
+  try {
+    const properties = PropertiesService.getScriptProperties();
+    const rawAliases = properties.getProperty('FINALIDAD_DETALLADA_ALIASES');
 
-// =============================================================
-// Utilidades generales
-// =============================================================
-(function (namespace) {
-  function normalizeHeaderName(value) {
-    if (value === null || value === undefined) {
-      return '';
+    if (!rawAliases) {
+      return getDefaultFinalidadDetalladaAliases();
     }
+
+    const parsedAliases = JSON.parse(rawAliases);
+    if (!Array.isArray(parsedAliases)) {
+      return getDefaultFinalidadDetalladaAliases();
+    }
+
+    const normalizedAliases = parsedAliases
+      .map(normalizeHeaderName)
+      .filter(Boolean);
+
+    const uniqueAliases = Array.from(new Set(normalizedAliases));
+    return uniqueAliases.length > 0 ? uniqueAliases : getDefaultFinalidadDetalladaAliases();
+  } catch (error) {
+    Logger.log('No se pudieron obtener alias personalizados de finalidad detallada: ' + error.toString());
+    return getDefaultFinalidadDetalladaAliases();
+  }
+}
+
+function getFinalidadDetalladaColumnIndex(sheet) {
+  const lastColumn = sheet.getLastColumn();
+  if (lastColumn === 0) {
+    return -1;
+  }
+
+  const headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0] || [];
+  const fallbackIndex = lastColumn >= 28 ? 27 : -1;
+  const index = findColumnIndexByAliases(headers, getFinalidadDetalladaAliases(), fallbackIndex);
+  return index >= lastColumn ? -1 : index;
+}
+
+function getActiveUserEmail() {
+  try {
+    const email = Session.getActiveUser().getEmail();
+    return email || 'sistema@caritaslima.org';
+  } catch (error) {
+    Logger.log('No se pudo obtener el correo del usuario activo: ' + error.toString());
+    return 'sistema@caritaslima.org';
+  }
+}
+
+function sanitizeText(value, fallback = '') {
+  if (value === null || value === undefined) {
+    return fallback;
+  }
+  return String(value).trim();
+}
+
+function parseDate(value, fallback = new Date()) {
+  if (!value) return fallback;
+  try {
+    return new Date(value);
+  } catch (error) {
+    return fallback;
+  }
+}
+
+function prepararDatosCertificacion(datos, usuarioActual) {
+  const datosCompletos = { ...datos };
+
+  if (datosCompletos.solicitanteId) {
+    const solicitante = obtenerSolicitantePorId(datosCompletos.solicitanteId);
+    if (solicitante) {
+      datosCompletos.solicitante = solicitante.nombre;
+      datosCompletos.cargoSolicitante = solicitante.cargo;
+      datosCompletos.emailSolicitante = solicitante.email;
+    }
+  }
+
+  const itemsNormalizados = Array.isArray(datosCompletos.items)
+    ? datosCompletos.items.map(normalizarItemCertificacion).filter(Boolean)
+    : [];
+
+  return {
+    descripcion: sanitizeText(datosCompletos.descripcion),
+    iniciativa: sanitizeText(datosCompletos.iniciativa),
+    tipo: sanitizeText(datosCompletos.tipo),
+    fuente: sanitizeText(datosCompletos.fuente),
+    finalidad: sanitizeText(datosCompletos.finalidad),
+    finalidadDetallada: sanitizeText(datosCompletos.finalidadDetallada || datosCompletos.finalidad),
+    oficina: sanitizeText(datosCompletos.oficina),
+    solicitante: sanitizeText(datosCompletos.solicitante),
+    cargoSolicitante: sanitizeText(datosCompletos.cargoSolicitante),
+    emailSolicitante: sanitizeText(datosCompletos.emailSolicitante, usuarioActual),
+    disposicion: sanitizeText(datosCompletos.disposicion),
+    plantilla: sanitizeText(datosCompletos.plantilla, 'plantilla_evelyn'),
+    items: itemsNormalizados,
+    firmantes: Array.isArray(datosCompletos.firmantes) ? datosCompletos.firmantes : []
+  };
+}
+
+function normalizarItemCertificacion(item) {
+  if (!item) return null;
+  const descripcion = sanitizeText(item.descripcion);
+  if (!descripcion) return null;
+
+  const cantidad = Number(item.cantidad || 0);
+  const precioUnitario = Number(item.precioUnitario || item.precio || 0);
+  const subtotalCalculado = cantidad * precioUnitario;
+
+  return {
+    descripcion,
+    cantidad,
+    unidad: sanitizeText(item.unidad),
+    precioUnitario,
+    subtotal: subtotalCalculado
+  };
+}
+
+function mapRowToCertificacion(row, index, finalidadDetalladaIndex = -1) {
+  const tieneFinalidadDetallada = finalidadDetalladaIndex >= 0 && finalidadDetalladaIndex < row.length;
+  return {
+    codigo: row[0],
+    fechaEmision: row[1],
+    descripcion: row[2],
+    iniciativa: row[3],
+    tipo: row[4],
+    fuente: row[5],
+    finalidad: row[6],
+    oficina: row[7],
+    solicitante: row[8],
+    cargoSolicitante: row[9],
+    emailSolicitante: row[10],
+    numeroAutorizacion: row[11],
+    cargoAutorizador: row[12],
+    estado: row[13],
+    disposicion: row[14],
+    montoTotal: row[15] || 0,
+    montoLetras: row[16],
+    fechaCreacion: row[17],
+    creadoPor: row[18],
+    fechaModificacion: row[19],
+    modificadoPor: row[20],
+    fechaAnulacion: row[21],
+    anuladoPor: row[22],
+    motivoAnulacion: row[23],
+    plantilla: row[24],
+    urlDocumento: row[25],
+    urlPDF: row[26],
+    finalidadDetallada: tieneFinalidadDetallada ? row[finalidadDetalladaIndex] : '',
+    fila: index + 1
+  };
+}
+
+// Estados de certificación
+const ESTADOS = {
+  BORRADOR: 'Borrador',
+  EN_REVISION: 'En revisión',
+  AUTORIZACION_PENDIENTE: 'Autorización pendiente',
+  ACTIVA: 'Activa',
+  ANULADA: 'Anulada'
+};
+
+// Roles de usuario
+const ROLES = {
+  SOLICITANTE: 'Solicitante',
+  REVISOR: 'Revisor/Presupuesto',
+  AUTORIZADOR: 'Autorizador',
+  ADMINISTRADOR: 'Administrador'
+};
+
+// ===============================================
+// FUNCIONES PRINCIPALES DE LA APLICACIÓN WEB
+// ===============================================
 
     try {
       return String(value)
@@ -194,32 +304,84 @@ var CP = typeof CP !== 'undefined' ? CP : {};
     return Number.isFinite(number) ? number : 0;
   }
 
-  function toBoolean(value) {
-    if (typeof value === 'boolean') {
-      return value;
-    }
-    if (typeof value === 'number') {
-      return value !== 0;
-    }
-    if (typeof value === 'string') {
-      return ['true', '1', 'si', 'sí', 'y', 'yes'].indexOf(value.toLowerCase()) !== -1;
-    }
-    return Boolean(value);
-  }
+function crearCertificacion(datos) {
+  try {
+    const sheet = getSheetOrThrow(SHEET_NAMES.CERTIFICACIONES);
 
-  function now() {
-    return new Date();
-  }
+    Logger.log('Creando certificación con datos: ' + JSON.stringify(datos));
 
-  function toDate(value) {
-    if (!value) {
-      return null;
+    const codigo = generarCodigoCertificacionConsecutivo();
+    const fechaActual = new Date();
+    const fechaCertificacion = parseDate(datos.fechaCertificacion || datos.fecha, fechaActual);
+    const usuario = getActiveUserEmail();
+
+    const datosCompletos = prepararDatosCertificacion(datos, usuario);
+    const finalidad = sanitizeText(datosCompletos.finalidad) || generarFinalidadAutomatica(datosCompletos.descripcion);
+    const finalidadDetallada = sanitizeText(datosCompletos.finalidadDetallada) || finalidad;
+    const disposicion = sanitizeText(datosCompletos.disposicion) || obtenerDisposicionPorDefecto();
+    const plantilla = sanitizeText(datosCompletos.plantilla) || 'plantilla_evelyn';
+
+    const fila = [
+      codigo,
+      fechaCertificacion,
+      datosCompletos.descripcion,
+      datosCompletos.iniciativa,
+      datosCompletos.tipo,
+      datosCompletos.fuente,
+      finalidad,
+      datosCompletos.oficina,
+      datosCompletos.solicitante,
+      datosCompletos.cargoSolicitante,
+      datosCompletos.emailSolicitante,
+      '',
+      '',
+      ESTADOS.BORRADOR,
+      disposicion,
+      0,
+      '',
+      fechaActual,
+      usuario,
+      fechaActual,
+      usuario,
+      '',
+      '',
+      '',
+      plantilla,
+      '',
+      '',
+      finalidadDetallada
+    ];
+
+    sheet.appendRow(fila);
+
+    if (datosCompletos.items.length > 0) {
+      crearItemsCertificacion(codigo, datosCompletos.items);
     }
-    if (value instanceof Date) {
-      return value;
+
+    crearFirmantesBasadosEnPlantilla(codigo, plantilla);
+    recalcularTotalesCertificacion(codigo);
+
+    const resultadoGeneracion = generarCertificadoPerfecto(codigo);
+
+    if (!resultadoGeneracion.success) {
+      Logger.log(`❌ Error generando certificado: ${resultadoGeneracion.error}`);
     }
-    const parsed = new Date(value);
-    return isNaN(parsed.getTime()) ? null : parsed;
+
+    registrarActividad('CREAR_CERTIFICACION', `Código: ${codigo}`);
+
+    return {
+      success: true,
+      codigo,
+      certificado: resultadoGeneracion,
+      urls: {
+        documento: resultadoGeneracion.success ? resultadoGeneracion.urlDocumento : null,
+        pdf: resultadoGeneracion.success ? resultadoGeneracion.urlPDF : null,
+        vistaPrevia: resultadoGeneracion.success ? resultadoGeneracion.urlVistaPrevia : null
+      }
+    };
+  } catch (error) {
+    Logger.log('Error en crearCertificacion: ' + error.toString());
+    return { success: false, error: error.toString() };
   }
 
   function formatDate(value, timezone) {
@@ -227,114 +389,213 @@ var CP = typeof CP !== 'undefined' ? CP : {};
     if (!date) {
       return '';
     }
-    const tz = timezone || namespace.Constants.DEFAULT_TIMEZONE;
-    return Utilities.formatDate(date, tz, 'yyyy-MM-dd');
-  }
 
-  function formatDateTime(value, timezone) {
-    const date = toDate(value);
-    if (!date) {
-      return '';
+    // Crear documento básico que SIEMPRE funciona
+    const doc = DocumentApp.create(`Certificacion_${codigoCertificacion}`);
+    const body = doc.getBody();
+
+    const folder = getCertificadosFolder();
+    if (folder) {
+      try {
+        const docFile = DriveApp.getFileById(doc.getId());
+        folder.addFile(docFile);
+        const parents = docFile.getParents();
+        const folderId = folder.getId();
+        const padresAEliminar = [];
+        while (parents.hasNext()) {
+          const parent = parents.next();
+          if (parent.getId() !== folderId) {
+            padresAEliminar.push(parent);
+          }
+        }
+        padresAEliminar.forEach(parent => parent.removeFile(docFile));
+      } catch (folderError) {
+        Logger.log('No se pudo mover el documento a la carpeta configurada: ' + folderError.toString());
+      }
     }
-    const tz = timezone || namespace.Constants.DEFAULT_TIMEZONE;
-    return Utilities.formatDate(date, tz, 'yyyy-MM-dd HH:mm:ss');
-  }
 
-  function formatCurrency(value) {
-    const amount = toNumber(value);
-    return amount.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  }
+    // Configurar márgenes
+    body.setMarginTop(72);
+    body.setMarginBottom(72);
+    body.setMarginLeft(72);
+    body.setMarginRight(72);
+    
+    // Header con logo y título
+    const headerTable = body.appendTable();
+    const headerRow = headerTable.appendTableRow();
+    
+    // Logo
+    const logoCell = headerRow.appendTableCell();
+    logoCell.appendParagraph('🍀 Cáritas').editAsText().setBold(true).setFontSize(14).setForegroundColor('#019952');
+    logoCell.appendParagraph('LIMA').editAsText().setBold(true).setFontSize(12).setForegroundColor('#019952');
+    logoCell.setWidth(120);
+    
+    // Título
+    const titleCell = headerRow.appendTableCell();
+    titleCell.appendParagraph('Certificación Presupuestal').setAlignment(DocumentApp.HorizontalAlignment.CENTER).editAsText().setBold(true).setFontSize(16);
+    
+    headerTable.setBorderWidth(0);
+    
+    body.appendParagraph(''); // Espaciado
+    
+    // Información básica
+    body.appendParagraph(`Número: ${certificacion.codigo}`).editAsText().setBold(0, 7, true).setFontSize(11);
+    body.appendParagraph(`Fecha: ${formatearFechaDocumento(certificacion.fechaEmision)}`).editAsText().setBold(0, 5, true).setFontSize(11);
+    body.appendParagraph(`Responsable del área solicitante: ${certificacion.solicitante}`).editAsText().setBold(0, 35, true).setFontSize(11);
+    body.appendParagraph(`Oficina solicitante: ${obtenerNombreOficina(certificacion.oficina)}`).editAsText().setBold(0, 18, true).setFontSize(11);
+    body.appendParagraph(`Iniciativa: ${obtenerNombreCatalogo('iniciativas', certificacion.iniciativa)} y ${certificacion.descripcion}`).editAsText().setBold(0, 10, true).setFontSize(11);
+    
+    body.appendParagraph(''); // Espaciado
+    
+    // Tabla de ítems (método simplificado)
+    if (certificacion.items && certificacion.items.length > 0) {
+      const itemsTable = body.appendTable();
+      itemsTable.setBorderWidth(1);
+      
+      // Encabezados
+      const headerRow = itemsTable.appendTableRow();
+      headerRow.appendTableCell('Descripción').editAsText().setBold(true).setFontSize(10);
+      headerRow.appendTableCell('Cant.').editAsText().setBold(true).setFontSize(10);
+      headerRow.appendTableCell('C/U (S/)').editAsText().setBold(true).setFontSize(10);
+      headerRow.appendTableCell('C/T(S/)').editAsText().setBold(true).setFontSize(10);
+      
+      // Datos
+      certificacion.items.forEach(item => {
+        const dataRow = itemsTable.appendTableRow();
+        dataRow.appendTableCell(item.descripcion).editAsText().setFontSize(10);
+        dataRow.appendTableCell(item.cantidad.toString()).editAsText().setFontSize(10);
+        dataRow.appendTableCell(`S/ ${item.precioUnitario.toFixed(2)}`).editAsText().setFontSize(10);
+        dataRow.appendTableCell(`S/ ${item.subtotal.toFixed(2)}`).editAsText().setFontSize(10);
+      });
+      
+      // Total
+      const totalRow = itemsTable.appendTableRow();
+      totalRow.appendTableCell('Total').editAsText().setBold(true).setFontSize(10);
+      totalRow.appendTableCell('1').editAsText().setBold(true).setFontSize(10);
+      totalRow.appendTableCell(`S/ ${certificacion.montoTotal.toFixed(2)}`).editAsText().setBold(true).setFontSize(10);
+      totalRow.appendTableCell(`S/ ${certificacion.montoTotal.toFixed(2)}`).editAsText().setBold(true).setFontSize(10);
+    }
+    
+    body.appendParagraph(''); // Espaciado
+    
+    // Información adicional
+    body.appendParagraph(`Base Legal: ${certificacion.disposicion || obtenerDisposicionPorDefecto()}`).editAsText().setBold(0, 10, true).setFontSize(10);
+    body.appendParagraph(`Fuente de Financiamiento: ${obtenerNombreCatalogo('fuentes', certificacion.fuente)}`).editAsText().setBold(0, 24, true).setFontSize(10);
+    body.appendParagraph(`Finalidad: ${certificacion.finalidad}`).editAsText().setBold(0, 9, true).setFontSize(10);
+    body.appendParagraph(`Monto: S/ ${certificacion.montoTotal.toFixed(2)} | ${certificacion.montoLetras}`).editAsText().setBold(0, 6, true).setFontSize(10);
+    
+    body.appendParagraph(''); // Espaciado
+    
+    // Disposiciones
+    body.appendParagraph('Disposiciones:').editAsText().setBold(true).setFontSize(11);
+    body.appendParagraph('• Se ha considerado la evaluación realizada por el área de logística desde la oficina de administración y según el estudio de mercado (cuadro comparativo)').editAsText().setFontSize(10);
+    body.appendParagraph('• La presente autorización presupuestal se emite en base a la disponibilidad presupuestal aprobada para la iniciativa').editAsText().setFontSize(10);
+    body.appendParagraph('• El responsable de la ejecución del gasto deberá presentar la documentación sustentatoria de acuerdo a las normas vigentes.').editAsText().setFontSize(10);
+    
+    body.appendParagraph(''); // Espaciado
+    body.appendParagraph('Adjuntos: Documento sustentatorio obligatorios (contrataciones, proformas, términos de referencia, etc.)').editAsText().setBold(0, 8, true).setFontSize(10);
+    
+    body.appendParagraph(''); // Espaciado
+    
+    // Fecha de firma
+    const fechaFirma = new Date(certificacion.fechaEmision);
+    body.appendParagraph(`Firmado en fecha ${fechaFirma.getDate()} de ${obtenerNombreMesCompleto(fechaFirma.getMonth())} de ${fechaFirma.getFullYear()} por:`).editAsText().setBold(0, 16, true).setFontSize(10);
+    
+    body.appendParagraph(''); // Espaciado
+    body.appendParagraph(''); // Espaciado
+    body.appendParagraph(''); // Espaciado
+    body.appendParagraph(''); // Espaciado
+    
+    // Firma según plantilla
+    const firmantePorPlantilla = obtenerFirmantePorPlantilla(certificacion.plantilla);
+    
+    body.appendParagraph('_'.repeat(35)).setAlignment(DocumentApp.HorizontalAlignment.CENTER);
+    body.appendParagraph(firmantePorPlantilla.nombre).setAlignment(DocumentApp.HorizontalAlignment.CENTER).editAsText().setBold(true).setFontSize(11);
+    body.appendParagraph(firmantePorPlantilla.cargo).setAlignment(DocumentApp.HorizontalAlignment.CENTER).editAsText().setFontSize(10);
+    body.appendParagraph('Cáritas Lima').setAlignment(DocumentApp.HorizontalAlignment.CENTER).editAsText().setFontSize(10);
+    
+    body.appendParagraph(''); // Espaciado
+    body.appendParagraph(''); // Espaciado
+    
+    // Footer de control
+    const numeroSolicitud = codigoCertificacion.split('-')[2];
+    const año = fechaFirma.getFullYear();
+    const mesAbrev = obtenerNombreMes(fechaFirma.getMonth()).substring(0, 4);
+    
+    const controlText = `*Control electrónico con asunto - Re: FP 149 Aprobación cédula Solicitud ${numeroSolicitud} de ${año} ***COMPRA ADICIONAL ACEITE*** enviado por la Administración el ${fechaFirma.getDate()} ${mesAbrev} ${año}. ${fechaFirma.getHours()}:${fechaFirma.getMinutes().toString().padStart(2, '0')} ${fechaFirma.getHours() >= 12 ? 'p.m.' : 'a.m.'}*`;
+    
+    body.appendParagraph(controlText).editAsText().setFontSize(8);
+    
+    doc.saveAndClose();
+    
+    // Generar PDF
+    let pdf;
+    try {
+      const pdfBlob = doc.getAs(MimeType.PDF);
+      pdfBlob.setName(`Certificacion_${codigoCertificacion}.pdf`);
+      pdf = folder ? folder.createFile(pdfBlob) : DriveApp.createFile(pdfBlob);
+    } catch (pdfError) {
+      Logger.log('No se pudo crear el PDF en la carpeta configurada: ' + pdfError.toString());
+      const fallbackBlob = doc.getAs(MimeType.PDF);
+      fallbackBlob.setName(`Certificacion_${codigoCertificacion}.pdf`);
+      pdf = DriveApp.createFile(fallbackBlob);
+    }
 
-  function mapRowToObject(headers, row) {
-    return headers.reduce(function (acc, header, index) {
-      acc[header] = index < row.length ? row[index] : '';
-      return acc;
-    }, {});
-  }
-
-  function mapObjectToRow(headers, data) {
-    return headers.map(function (header) {
-      return data.hasOwnProperty(header) ? data[header] : '';
+    // URLs
+    const urlDocumento = `https://docs.google.com/document/d/${doc.getId()}/edit`;
+    const urlPDF = `https://drive.google.com/file/d/${pdf.getId()}/view`;
+    const urlVistaPrevia = `https://docs.google.com/document/d/${doc.getId()}/preview`;
+    
+    // Actualizar URLs en certificación
+    actualizarCertificacion(codigoCertificacion, {
+      urlDocumento: urlDocumento,
+      urlPDF: urlPDF
     });
   }
 
-  function slugify(value) {
-    return normalizeHeaderName(value).replace(/[^a-z0-9]+/g, '_');
-  }
+function obtenerCertificaciones(filtros = {}) {
+  try {
+    const sheet = getSheetOrThrow(SHEET_NAMES.CERTIFICACIONES);
+    const data = getSheetValues(sheet);
 
-  function uniqueId(prefix) {
-    return prefix + '_' + Utilities.getUuid().split('-')[0];
-  }
+    if (data.length <= 1) return [];
 
-  namespace.Utils = Object.freeze({
-    normalizeHeaderName,
-    normalizeString,
-    toNumber,
-    toBoolean,
-    now,
-    toDate,
-    formatDate,
-    formatDateTime,
-    formatCurrency,
-    mapRowToObject,
-    mapObjectToRow,
-    slugify,
-    uniqueId
-  });
-})(CP);
+    const headers = data[0] || [];
+    const finalidadDetalladaIndex = findColumnIndexByAliases(
+      headers,
+      getFinalidadDetalladaAliases(),
+      headers.length > 27 ? 27 : -1
+    );
 
-// =============================================================
-// Utilidades para hojas de cálculo
-// =============================================================
-(function (namespace) {
-  const { SHEETS, HEADERS } = namespace.Constants;
-  const { normalizeHeaderName } = namespace.Utils;
-
-  function getSpreadsheet() {
-    return SpreadsheetApp.getActiveSpreadsheet();
-  }
-
-  function getSheet(name) {
-    return getSpreadsheet().getSheetByName(name);
-  }
-
-  function ensureSheet(name, headers) {
-    const ss = getSpreadsheet();
-    let sheet = ss.getSheetByName(name);
-
-    if (!sheet) {
-      sheet = ss.insertSheet(name);
-    }
-
-    const requiredHeaders = headers && headers.length ? headers : null;
-
-    if (requiredHeaders) {
-      const range = sheet.getRange(1, 1, 1, requiredHeaders.length);
-      const current = range.getValues()[0];
-      const normalizedCurrent = current.map(normalizeHeaderName);
-      const normalizedTarget = requiredHeaders.map(normalizeHeaderName);
-
-      let needsUpdate = normalizedCurrent.length !== normalizedTarget.length;
-      if (!needsUpdate) {
-        for (let i = 0; i < normalizedTarget.length; i++) {
-          if (normalizedCurrent[i] !== normalizedTarget[i]) {
-            needsUpdate = true;
-            break;
+    const certificaciones = data
+      .slice(1)
+      .map((row, index) => {
+        if (!row[0]) {
+          return null;
+        }
+        return mapRowToCertificacion(row, index + 1, finalidadDetalladaIndex);
+      })
+      .filter(Boolean)
+      .filter(cert => {
+        if (filtros.estado && cert.estado !== filtros.estado) return false;
+        if (filtros.oficina && cert.oficina !== filtros.oficina) return false;
+        if (filtros.busqueda) {
+          const busqueda = filtros.busqueda.toLowerCase();
+          const coincideBusqueda =
+            (cert.codigo || '').toLowerCase().includes(busqueda) ||
+            (cert.descripcion || '').toLowerCase().includes(busqueda) ||
+            (cert.solicitante || '').toLowerCase().includes(busqueda);
+          if (!coincideBusqueda) {
+            return false;
           }
         }
-      }
+        return true;
+      });
 
-      if (needsUpdate) {
-        range.clearContent();
-        range.offset(0, 0, 1, requiredHeaders.length).setValues([requiredHeaders]);
-      }
-
-      if (sheet.getFrozenRows() < 1) {
-        sheet.setFrozenRows(1);
-      }
-    }
-
-    return sheet;
+    return certificaciones;
+  } catch (error) {
+    Logger.log('Error en obtenerCertificaciones: ' + error.toString());
+    throw new Error('No se pudieron obtener certificaciones: ' + error.message);
   }
 
   function ensureBaseStructure() {
@@ -353,103 +614,139 @@ var CP = typeof CP !== 'undefined' ? CP : {};
     ensureSheet(SHEETS.BITACORA, HEADERS.BITACORA);
   }
 
-  function readTable(name) {
-    const sheet = ensureSheet(name);
-    const values = sheet.getDataRange().getValues();
-    if (!values.length) {
-      return { headers: [], rows: [] };
-    }
-    const headers = values[0];
-    const rows = values.slice(1).filter(function (row) {
-      return row.some(function (cell) {
-        return cell !== '' && cell !== null;
-      });
-    });
-    return { headers, rows };
-  }
+function actualizarCertificacion(codigo, datos) {
+  try {
+    const sheet = getSheetOrThrow(SHEET_NAMES.CERTIFICACIONES);
+    const dataRange = sheet.getDataRange();
+    const values = dataRange.getValues();
+    const filaIndex = findRowIndex(values, 0, codigo);
 
-  function writeTable(name, headers, rows) {
-    const sheet = ensureSheet(name, headers);
-    sheet.clearContents();
-    const allValues = [headers].concat(rows || []);
-    if (allValues.length) {
-      sheet.getRange(1, 1, allValues.length, headers.length).setValues(allValues);
-    }
-  }
-
-  function appendRow(name, headers, data) {
-    const sheet = ensureSheet(name, headers);
-    const row = namespace.Utils.mapObjectToRow(headers, data);
-    sheet.appendRow(row);
-    return sheet.getLastRow();
-  }
-
-  function updateRow(name, headers, rowIndex, data) {
-    const sheet = ensureSheet(name, headers);
-    const row = namespace.Utils.mapObjectToRow(headers, data);
-    const range = sheet.getRange(rowIndex, 1, 1, headers.length);
-    range.setValues([row]);
-  }
-
-  function findRow(name, headers, columnKey, value) {
-    const table = readTable(name);
-    if (!table.headers.length) {
-      return { index: -1, row: null };
-    }
-    const normalizedHeaders = table.headers.map(normalizeHeaderName);
-    const normalizedColumn = normalizeHeaderName(columnKey);
-    const columnIndex = normalizedHeaders.indexOf(normalizedColumn);
-    if (columnIndex === -1) {
-      return { index: -1, row: null };
+    if (filaIndex === -1) {
+      return { success: false, error: 'Certificación no encontrada' };
     }
 
-    for (let i = 0; i < table.rows.length; i++) {
-      if (table.rows[i][columnIndex] === value) {
-        return { index: i + 2, row: table.rows[i] };
+    const usuario = getActiveUserEmail();
+    const fechaActual = new Date();
+    const finalidadDetalladaIndex = getFinalidadDetalladaColumnIndex(sheet);
+    const puedeActualizarFinalidadDetallada = finalidadDetalladaIndex >= 0 && finalidadDetalladaIndex < values[0].length;
+
+    if (datos.fechaEmision !== undefined) {
+      values[filaIndex][1] = parseDate(datos.fechaEmision);
+    }
+    if (datos.descripcion !== undefined) {
+      values[filaIndex][2] = sanitizeText(datos.descripcion);
+      if (!datos.finalidad) {
+        const finalidadAuto = generarFinalidadAutomatica(datos.descripcion);
+        values[filaIndex][6] = finalidadAuto;
+        if (puedeActualizarFinalidadDetallada) {
+          values[filaIndex][finalidadDetalladaIndex] = finalidadAuto;
+        }
       }
     }
+    if (datos.finalidad !== undefined) {
+      const finalidadActualizada = sanitizeText(datos.finalidad);
+      values[filaIndex][6] = finalidadActualizada;
+      if (puedeActualizarFinalidadDetallada) {
+        values[filaIndex][finalidadDetalladaIndex] = finalidadActualizada;
+      }
+    }
+    if (datos.iniciativa !== undefined) values[filaIndex][3] = sanitizeText(datos.iniciativa);
+    if (datos.tipo !== undefined) values[filaIndex][4] = sanitizeText(datos.tipo);
+    if (datos.fuente !== undefined) values[filaIndex][5] = sanitizeText(datos.fuente);
+    if (datos.oficina !== undefined) values[filaIndex][7] = sanitizeText(datos.oficina);
+    if (datos.solicitante !== undefined) values[filaIndex][8] = sanitizeText(datos.solicitante);
+    if (datos.cargoSolicitante !== undefined) values[filaIndex][9] = sanitizeText(datos.cargoSolicitante);
+    if (datos.emailSolicitante !== undefined) values[filaIndex][10] = sanitizeText(datos.emailSolicitante);
+    if (datos.numeroAutorizacion !== undefined) values[filaIndex][11] = sanitizeText(datos.numeroAutorizacion);
+    if (datos.cargoAutorizador !== undefined) values[filaIndex][12] = sanitizeText(datos.cargoAutorizador);
+    if (datos.estado !== undefined) values[filaIndex][13] = sanitizeText(datos.estado);
+    if (datos.disposicion !== undefined) values[filaIndex][14] = sanitizeText(datos.disposicion);
+    if (datos.urlDocumento !== undefined) values[filaIndex][25] = sanitizeText(datos.urlDocumento);
+    if (datos.urlPDF !== undefined) values[filaIndex][26] = sanitizeText(datos.urlPDF);
+
+    values[filaIndex][19] = fechaActual;
+    values[filaIndex][20] = usuario;
+
+    if (datos.estado === ESTADOS.ANULADA) {
+      values[filaIndex][21] = fechaActual;
+      values[filaIndex][22] = usuario;
+      values[filaIndex][23] = sanitizeText(datos.motivoAnulacion);
+    }
+
+    dataRange.setValues(values);
+
+    if (datos.items) {
+      eliminarItemsCertificacion(codigo);
+      crearItemsCertificacion(codigo, datos.items);
+    }
+
+    if (datos.firmantes) {
+      eliminarFirmantesCertificacion(codigo);
+      crearFirmantesCertificacion(codigo, datos.firmantes);
+    }
+
+    recalcularTotalesCertificacion(codigo);
+    registrarActividad('ACTUALIZAR_CERTIFICACION', `Código: ${codigo}`);
+
+    return { success: true };
+  } catch (error) {
+    Logger.log('Error en actualizarCertificacion: ' + error.toString());
+    return { success: false, error: error.toString() };
+  }
+}
 
     return { index: -1, row: null };
   }
 
-  namespace.Sheets = Object.freeze({
-    getSpreadsheet,
-    getSheet,
-    ensureSheet,
-    ensureBaseStructure,
-    readTable,
-    writeTable,
-    appendRow,
-    updateRow,
-    findRow
-  });
-})(CP);
-
-// =============================================================
-// Utilidades para Drive y caché simple
-// =============================================================
-(function (namespace) {
-  const { FOLDERS } = namespace.Constants;
-
-  function getFolderById(id) {
-    if (!id) {
-      throw new Error('Se requiere un ID de carpeta válido');
+function obtenerSolicitantes() {
+  try {
+    let sheet;
+    try {
+      sheet = getSheetOrThrow(SHEET_NAMES.CONFIG_SOLICITANTES);
+    } catch (error) {
+      crearHojaConfigSolicitantes();
+      sheet = getSheetOrThrow(SHEET_NAMES.CONFIG_SOLICITANTES);
     }
-    return DriveApp.getFolderById(id);
+    const data = getSheetValues(sheet);
+    if (data.length <= 1) return [];
+
+    const solicitantes = data.slice(1)
+      .filter(row => row[0])
+      .map(row => ({
+        id: row[0],
+        nombre: row[1],
+        cargo: row[2],
+        email: row[3],
+        activo: row[4] !== false
+      }));
+
+    return solicitantes.filter(s => s.activo);
+  } catch (error) {
+    Logger.log('Error en obtenerSolicitantes: ' + error.toString());
+    return [];
   }
 
   function ensureFolder(id) {
     return getFolderById(id);
   }
 
-  function moveFileToFolder(file, folderId) {
-    const folder = ensureFolder(folderId);
-    folder.addFile(file);
-    const parents = file.getParents();
-    while (parents.hasNext()) {
-      const parent = parents.next();
-      if (parent.getId() !== folderId) {
-        parent.removeFile(file);
+function obtenerConfiguracionGeneral() {
+  try {
+    let sheet;
+    try {
+      sheet = getSheetOrThrow(SHEET_NAMES.CONFIG_GENERAL);
+    } catch (error) {
+      crearHojaConfigGeneral();
+      sheet = getSheetOrThrow(SHEET_NAMES.CONFIG_GENERAL);
+    }
+
+    const data = getSheetValues(sheet);
+    const config = {};
+
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      if (row[0] && row[1]) {
+        config[row[0]] = row[1];
       }
     }
   }
@@ -480,22 +777,35 @@ var CP = typeof CP !== 'undefined' ? CP : {};
       ensureSheet(SHEETS.CATALOGO_OFICINAS, HEADERS.CATALOGOS);
     },
 
-    list: function (sheetName) {
-      const table = readTable(sheetName);
-      return table.rows.map(function (row) {
-        const item = mapRowToObject(table.headers, row);
-        return {
-          id: normalizeString(item.ID || item.Id || item.id),
-          nombre: normalizeString(item.Nombre || item.nombre || ''),
-          descripcion: normalizeString(item.Descripción || item.descripcion || item['Descripción'] || ''),
-          activo: toBoolean(item.Activo || item.activo || true),
-          extra1: normalizeString(item['Extra 1'] || item.extra1 || ''),
-          extra2: normalizeString(item['Extra 2'] || item.extra2 || '')
-        };
-      }).filter(function (item) {
-        return item.id;
-      });
-    },
+function obtenerFirmantes() {
+  try {
+    let sheet;
+    try {
+      sheet = getSheetOrThrow(SHEET_NAMES.CONFIG_FIRMANTES);
+    } catch (error) {
+      crearHojaConfigFirmantes();
+      sheet = getSheetOrThrow(SHEET_NAMES.CONFIG_FIRMANTES);
+    }
+
+    const data = getSheetValues(sheet);
+    if (data.length <= 1) return [];
+
+    const firmantes = data.slice(1)
+      .filter(row => row[0])
+      .map(row => ({
+        id: row[0],
+        nombre: row[1],
+        cargo: row[2],
+        orden: row[3] || 1,
+        activo: row[4] !== false
+      }));
+
+    return firmantes.filter(f => f.activo).sort((a, b) => a.orden - b.orden);
+  } catch (error) {
+    Logger.log('Error en obtenerFirmantes: ' + error.toString());
+    return [];
+  }
+}
 
     saveAll: function (sheetName, records) {
       const headers = HEADERS.CATALOGOS;
@@ -567,37 +877,15 @@ var CP = typeof CP !== 'undefined' ? CP : {};
       });
     },
 
-    saveAll: function (plantillas) {
-      const headers = HEADERS.PLANTILLAS;
-      const rows = plantillas.map(function (p) {
-        return [
-          p.id,
-          p.nombre,
-          p.descripcion,
-          p.activa !== false,
-          p.firmantes || 1,
-          p.plantillaHtml || '',
-          p.firmanteId || '',
-          p.firmanteNombre || '',
-          p.firmanteCargo || ''
-        ];
-      });
-      writeTable(SHEETS.PLANTILLAS, headers, rows);
-    },
-
-    upsert: function (plantilla) {
-      const headers = HEADERS.PLANTILLAS;
-      const result = findRow(SHEETS.PLANTILLAS, headers, 'ID', plantilla.id);
-      const data = {
-        ID: plantilla.id,
-        Nombre: plantilla.nombre,
-        Descripción: plantilla.descripcion,
-        Activa: plantilla.activa !== false,
-        Firmantes: plantilla.firmantes || 1,
-        'Plantilla HTML': plantilla.plantillaHtml || '',
-        'Firmante ID': plantilla.firmanteId || '',
-        'Firmante Nombre': plantilla.firmanteNombre || '',
-        'Firmante Cargo': plantilla.firmanteCargo || ''
+function generarFinalidadConIA(payload) {
+  let descripcionTexto = '';
+  try {
+    const esObjeto = typeof payload === 'object' && payload !== null;
+    descripcionTexto = esObjeto ? payload.descripcion : payload;
+    if (!descripcionTexto) {
+      return {
+        success: false,
+        finalidad: 'Complementar necesidades operativas de la institución.'
       };
       if (result.index === -1) {
         appendRow(SHEETS.PLANTILLAS, headers, data);
@@ -608,43 +896,28 @@ var CP = typeof CP !== 'undefined' ? CP : {};
     }
   };
 
-  const ConfigRepository = {
-    list: function () {
-      const table = readTable(SHEETS.CONFIG_GENERAL);
-      const result = {};
-      table.rows.forEach(function (row) {
-        const entry = mapRowToObject(table.headers, row);
-        if (entry.Clave) {
-          result[entry.Clave] = entry.Valor;
-        }
-      });
-      return result;
-    },
-
-    saveAll: function (configMap) {
-      const headers = HEADERS.CONFIG_GENERAL;
-      const rows = Object.keys(configMap).map(function (key) {
-        return [key, configMap[key], ''];
-      });
-      writeTable(SHEETS.CONFIG_GENERAL, headers, rows);
-    },
-
-    upsert: function (key, value, description) {
-      const headers = HEADERS.CONFIG_GENERAL;
-      const result = findRow(SHEETS.CONFIG_GENERAL, headers, 'Clave', key);
-      const data = {
-        Clave: key,
-        Valor: value,
-        Descripción: description || ''
-      };
-      if (result.index === -1) {
-        appendRow(SHEETS.CONFIG_GENERAL, headers, data);
-      } else {
-        updateRow(SHEETS.CONFIG_GENERAL, headers, result.index, data);
-      }
-      SpreadsheetApp.flush();
+    const detalles = [];
+    if (esObjeto) {
+      if (payload.iniciativa) detalles.push(`Iniciativa: ${payload.iniciativa}`);
+      if (payload.tipo) detalles.push(`Tipo de gasto: ${payload.tipo}`);
+      if (payload.fuente) detalles.push(`Fuente de financiamiento: ${payload.fuente}`);
+      if (payload.oficina) detalles.push(`Oficina solicitante: ${payload.oficina}`);
+      if (payload.montoEstimado) detalles.push(`Monto estimado: S/ ${payload.montoEstimado}`);
     }
-  };
+
+    const contextoAdicional = detalles.length ? `\nDATOS ADICIONALES:\n- ${detalles.join('\n- ')}` : '';
+
+    const prompt = `Basándote en la siguiente descripción de una certificación presupuestal de Cáritas Lima, genera una FINALIDAD concisa y específica:
+
+DESCRIPCIÓN: "${descripcionTexto}"
+${contextoAdicional}
+
+EJEMPLOS de finalidades correctas:
+- "Complementar con productos adicionales la conformación de los kits de ollas"
+- "Contar con implementos adecuados que faciliten el desarrollo de las actividades"
+- "Fortalecer el área de comunicaciones mediante la implementación de recursos tecnológicos"
+- "Garantizar el traslado oportuno y seguro de las donaciones"
+- "Garantizar que las personas beneficiarias reciban una nutrición adecuada y oportuna"
 
   const CertificacionRepository = {
     listCertificaciones: function () {
@@ -664,28 +937,56 @@ var CP = typeof CP !== 'undefined' ? CP : {};
       });
     },
 
-    listFirmantes: function () {
-      const table = readTable(SHEETS.FIRMANTES);
-      return table.rows.map(function (row) {
-        return mapRowToObject(table.headers, row);
-      });
-    },
+    const requestBody = {
+      model: CONFIG.AI_MODEL,
+      messages: [
+        {
+          role: "system",
+          content: "Eres un experto en redacción de finalidades para certificaciones presupuestales de organizaciones sin fines de lucro católicas."
+        },
+        {
+          role: "user",
+          content: prompt
+        }
+      ],
+      max_tokens: 150,
+      temperature: 0.3
+    };
 
-    getByCodigo: function (codigo) {
-      const headers = HEADERS.CERTIFICACIONES;
-      const result = findRow(SHEETS.CERTIFICACIONES, headers, 'Código', codigo);
-      if (result.index === -1) {
-        return null;
-      }
-      return mapRowToObject(headers, result.row);
-    },
+    const options = {
+      method: 'POST',
+      headers: {
+        'CustomerId': CONFIG.CUSTOMER_ID,
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer xxx'
+      },
+      payload: JSON.stringify(requestBody)
+    };
 
-    create: function (certificacion) {
-      const headers = HEADERS.CERTIFICACIONES;
-      const rowIndex = appendRow(SHEETS.CERTIFICACIONES, headers, certificacion);
-      SpreadsheetApp.flush();
-      return rowIndex;
-    },
+    const response = UrlFetchApp.fetch(CONFIG.AI_ENDPOINT, options);
+    const responseData = JSON.parse(response.getContentText());
+    
+    if (responseData.choices && responseData.choices.length > 0) {
+      let finalidad = responseData.choices[0].message.content.trim();
+      finalidad = finalidad.replace(/^["']|["']$/g, '');
+      finalidad = finalidad.replace(/\.$/, '');
+      
+      return {
+        success: true,
+        finalidad: finalidad
+      };
+    } else {
+      throw new Error('Respuesta inválida de la API de AI');
+    }
+  } catch (error) {
+    Logger.log('Error en generarFinalidadConIA: ' + error.toString());
+    return {
+      success: false,
+      error: error.toString(),
+      finalidad: generarFinalidadAutomatica(descripcionTexto)
+    };
+  }
+}
 
     update: function (codigo, payload) {
       const headers = HEADERS.CERTIFICACIONES;
@@ -713,24 +1014,27 @@ var CP = typeof CP !== 'undefined' ? CP : {};
         }
       }
 
-      items.forEach(function (item) {
-        appendRow(SHEETS.ITEMS, headers, item);
-      });
-      SpreadsheetApp.flush();
-    },
+function generarCodigoCertificacionConsecutivo() {
+  try {
+    const año = new Date().getFullYear();
+    const sheet = getSpreadsheet().getSheetByName(SHEET_NAMES.CERTIFICACIONES);
 
-    replaceFirmantes: function (codigo, firmantes) {
-      const headers = HEADERS.FIRMANTES;
-      const sheet = ensureSheet(SHEETS.FIRMANTES, headers);
-      const table = readTable(SHEETS.FIRMANTES);
-      const columnIndex = table.headers
-        .map(namespace.Utils.normalizeHeaderName)
-        .indexOf(namespace.Utils.normalizeHeaderName('Código Certificación'));
+    if (!sheet) {
+      return `CP-${año}-0001`;
+    }
 
-      if (columnIndex !== -1) {
-        for (let i = table.rows.length; i >= 1; i--) {
-          if (table.rows[i - 1][columnIndex] === codigo) {
-            sheet.deleteRow(i + 1);
+    const data = sheet.getDataRange().getValues();
+    
+    // Buscar el último número consecutivo del año
+    let ultimoNumero = 0;
+    for (let i = 1; i < data.length; i++) {
+      const codigo = data[i][0];
+      if (codigo && codigo.toString().includes(`CP-${año}-`)) {
+        const partes = codigo.split('-');
+        if (partes.length >= 3) {
+          const numero = parseInt(partes[2]);
+          if (numero > ultimoNumero) {
+            ultimoNumero = numero;
           }
         }
       }
@@ -780,42 +1084,74 @@ var CP = typeof CP !== 'undefined' ? CP : {};
     return prefix + '-' + String(next).padStart(4, '0');
   }
 
-  function ensurePlaceholders(count) {
-    const placeholders = [];
-    for (let i = 1; i <= count; i++) {
-      placeholders.push({
-        id: 'custom_' + i,
-        nombre: 'Plantilla Personalizada ' + i,
-        descripcion: 'Espacio para personalizar un formato adicional',
-        firmantes: 3,
-        activa: i === 1,
-        firmanteId: '',
-        firmanteNombre: '',
-        firmanteCargo: ''
-      });
-    }
-    return placeholders;
-  }
+function crearItemsCertificacion(codigoCertificacion, items) {
+  try {
+    const sheet = getSheetOrThrow(SHEET_NAMES.ITEMS);
 
-  function seedPlantillas() {
-    const existentes = repos.Plantilla.list();
-    const mapa = {};
-    existentes.forEach(function (plantilla) {
-      mapa[plantilla.id] = plantilla;
+    items.forEach((item, index) => {
+      const subtotal = (item.cantidad || 0) * (item.precioUnitario || 0);
+      const fila = [
+        codigoCertificacion,
+        index + 1,
+        item.descripcion || '',
+        item.cantidad || 0,
+        item.unidad || 'Unidad',
+        item.precioUnitario || 0,
+        subtotal,
+        new Date(),
+        getActiveUserEmail()
+      ];
+      sheet.appendRow(fila);
     });
 
-    const plantillas = DEFAULT_TEMPLATES.map(function (base) {
-      if (mapa[base.id]) {
-        return Object.assign({}, mapa[base.id], base);
+    SpreadsheetApp.flush();
+
+    return { success: true };
+  } catch (error) {
+    Logger.log('Error en crearItemsCertificacion: ' + error.toString());
+    return { success: false, error: error.toString() };
+  }
+
+function obtenerItemsCertificacion(codigoCertificacion) {
+  try {
+    const sheet = getSpreadsheet().getSheetByName(SHEET_NAMES.ITEMS);
+
+    if (!sheet) return [];
+
+    const data = sheet.getDataRange().getValues();
+    
+    if (data.length <= 1) return [];
+    
+    const items = [];
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      if (row[0] === codigoCertificacion) {
+        items.push({
+          codigoCertificacion: row[0],
+          orden: row[1],
+          descripcion: row[2],
+          cantidad: row[3],
+          unidad: row[4],
+          precioUnitario: row[5],
+          subtotal: row[6],
+          fechaCreacion: row[7],
+          creadoPor: row[8]
+        });
       }
       return base;
     });
 
-    ensurePlaceholders(5).forEach(function (placeholder) {
-      if (!mapa[placeholder.id]) {
-        plantillas.push(placeholder);
-      } else {
-        plantillas.push(Object.assign({}, mapa[placeholder.id]));
+function eliminarItemsCertificacion(codigoCertificacion) {
+  try {
+    const sheet = getSpreadsheet().getSheetByName(SHEET_NAMES.ITEMS);
+
+    if (!sheet) return { success: true };
+
+    const data = sheet.getDataRange().getValues();
+    
+    for (let i = data.length - 1; i >= 1; i--) {
+      if (data[i][0] === codigoCertificacion) {
+        sheet.deleteRow(i + 1);
       }
     });
 
@@ -855,19 +1191,53 @@ var CP = typeof CP !== 'undefined' ? CP : {};
     ]);
   }
 
-  function seedConfiguracionGeneral() {
-    repos.Config.saveAll({
-      disposicion_base_legal: 'Directiva 003-2023-SG/CARITASLIMA',
-      codigo_formato: 'CP-{YEAR}-{NUMBER}',
-      timezone: namespace.Constants.DEFAULT_TIMEZONE,
-      moneda_por_defecto: 'PEN'
+function crearFirmantesCertificacion(codigoCertificacion, firmantes) {
+  try {
+    const sheet = getSheetOrThrow(SHEET_NAMES.FIRMANTES);
+
+    firmantes.forEach((firmante, index) => {
+      const fila = [
+        codigoCertificacion,
+        index + 1,
+        firmante.nombre || '',
+        firmante.cargo || '',
+        firmante.obligatorio || false,
+        new Date(),
+        getActiveUserEmail()
+      ];
+      sheet.appendRow(fila);
     });
+
+    return { success: true };
+  } catch (error) {
+    Logger.log('Error en crearFirmantesCertificacion: ' + error.toString());
+    return { success: false, error: error.toString() };
   }
 
-  function seedExampleCertificacion() {
-    const certificaciones = repos.Certificacion.listCertificaciones();
-    if (certificaciones.length) {
-      return;
+function obtenerFirmantesCertificacion(codigoCertificacion) {
+  try {
+    const sheet = getSpreadsheet().getSheetByName(SHEET_NAMES.FIRMANTES);
+
+    if (!sheet) return [];
+
+    const data = sheet.getDataRange().getValues();
+    
+    if (data.length <= 1) return [];
+    
+    const firmantes = [];
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      if (row[0] === codigoCertificacion) {
+        firmantes.push({
+          codigoCertificacion: row[0],
+          orden: row[1],
+          nombre: row[2],
+          cargo: row[3],
+          obligatorio: row[4],
+          fechaCreacion: row[5],
+          creadoPor: row[6]
+        });
+      }
     }
     const codigo = buildCorrelative();
     const fecha = utils.formatDate(new Date());
@@ -939,40 +1309,17 @@ var CP = typeof CP !== 'undefined' ? CP : {};
     ]);
   }
 
-  function numeroALetras(numero) {
-    const unidades = ['cero', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve'];
-    const especiales = ['diez', 'once', 'doce', 'trece', 'catorce', 'quince', 'dieciséis', 'diecisiete', 'dieciocho', 'diecinueve'];
-    const decenas = ['', '', 'veinte', 'treinta', 'cuarenta', 'cincuenta', 'sesenta', 'setenta', 'ochenta', 'noventa'];
-    const centenas = ['', 'cien', 'doscientos', 'trescientos', 'cuatrocientos', 'quinientos', 'seiscientos', 'setecientos', 'ochocientos', 'novecientos'];
+function eliminarFirmantesCertificacion(codigoCertificacion) {
+  try {
+    const sheet = getSpreadsheet().getSheetByName(SHEET_NAMES.FIRMANTES);
 
-    function convertirMenor100(n) {
-      if (n < 10) return unidades[n];
-      if (n < 20) return especiales[n - 10];
-      const dec = Math.floor(n / 10);
-      const uni = n % 10;
-      if (uni === 0) return decenas[dec];
-      if (dec === 2) return 'veinti' + unidades[uni];
-      return decenas[dec] + ' y ' + unidades[uni];
-    }
+    if (!sheet) return { success: true };
 
-    function convertirMenor1000(n) {
-      if (n < 100) return convertirMenor100(n);
-      const cen = Math.floor(n / 100);
-      const resto = n % 100;
-      if (cen === 1 && resto === 0) return 'cien';
-      const nombreCen = cen === 1 ? 'ciento' : centenas[cen];
-      if (resto === 0) return nombreCen;
-      return nombreCen + ' ' + convertirMenor100(resto);
-    }
-
-    function convertir(n) {
-      if (n < 1000) return convertirMenor1000(n);
-      if (n < 1000000) {
-        const miles = Math.floor(n / 1000);
-        const resto = n % 1000;
-        const milesTexto = miles === 1 ? 'mil' : convertirMenor1000(miles) + ' mil';
-        if (resto === 0) return milesTexto;
-        return milesTexto + ' ' + convertirMenor1000(resto);
+    const data = sheet.getDataRange().getValues();
+    
+    for (let i = data.length - 1; i >= 1; i--) {
+      if (data[i][0] === codigoCertificacion) {
+        sheet.deleteRow(i + 1);
       }
       const millones = Math.floor(n / 1000000);
       const resto = n % 1000000;
@@ -991,46 +1338,23 @@ var CP = typeof CP !== 'undefined' ? CP : {};
     return resultado + ' soles';
   }
 
-  function convertirNumeroALetras(numero) {
-    return numeroALetras(utils.toNumber(numero));
+function crearFirmantesBasadosEnPlantilla(codigoCertificacion, plantillaId) {
+  try {
+    const firmante = PLANTILLA_FIRMANTES[plantillaId] || PLANTILLA_FIRMANTES['plantilla_evelyn'];
+
+    return crearFirmantesCertificacion(codigoCertificacion, [{
+      nombre: firmante.nombre,
+      cargo: firmante.cargo,
+      obligatorio: true
+    }]);
+  } catch (error) {
+    Logger.log('Error en crearFirmantesBasadosEnPlantilla: ' + error.toString());
+    return { success: false, error: error.toString() };
   }
 
-  function buildDocument(certificacion, items, firmantes) {
-    const folder = drive.ensureFolder(FOLDERS.CERTIFICACIONES);
-    const fileName = certificacion['Código'] + ' - ' + certificacion.Descripción;
-    const document = DocumentApp.create(fileName);
-    const docFile = DriveApp.getFileById(document.getId());
-    drive.moveFileToFolder(docFile, FOLDERS.CERTIFICACIONES);
-
-    const body = document.getBody();
-    body.appendParagraph('CERTIFICACIÓN PRESUPUESTAL').setHeading(DocumentApp.ParagraphHeading.HEADING1);
-    body.appendParagraph('Código: ' + certificacion['Código']);
-    body.appendParagraph('Fecha: ' + certificacion['Fecha Emisión']);
-    body.appendParagraph('Descripción: ' + certificacion.Descripción);
-    body.appendParagraph('Finalidad: ' + certificacion['Finalidad Detallada']);
-    body.appendParagraph('Monto total: S/ ' + utils.formatCurrency(certificacion['Monto Total']));
-    body.appendParagraph('Monto en letras: ' + certificacion['Monto en Letras']);
-
-    body.appendParagraph('Items').setHeading(DocumentApp.ParagraphHeading.HEADING2);
-    items.forEach(function (item) {
-      body.appendParagraph('- ' + item.Descripción + ' (' + item.Cantidad + ' ' + item.Unidad + ') - S/ ' + utils.formatCurrency(item.Subtotal));
-    });
-
-    body.appendParagraph('Firmantes').setHeading(DocumentApp.ParagraphHeading.HEADING2);
-    firmantes.forEach(function (firmante) {
-      body.appendParagraph(firmante.Nombre + ' - ' + firmante.Cargo);
-    });
-
-    document.saveAndClose();
-
-    const pdfBlob = docFile.getAs(MimeType.PDF);
-    const pdfFile = folder.createFile(pdfBlob).setName(fileName + '.pdf');
-
-    return {
-      urlDocumento: document.getUrl(),
-      urlPDF: pdfFile.getUrl()
-    };
-  }
+function obtenerFirmantePorPlantilla(plantillaId) {
+  return PLANTILLA_FIRMANTES[plantillaId] || PLANTILLA_FIRMANTES['plantilla_evelyn'];
+}
 
   function crearCertificacion(payload) {
     sheets.ensureBaseStructure();
@@ -1042,91 +1366,233 @@ var CP = typeof CP !== 'undefined' ? CP : {};
       return item.id === payload.solicitante;
     });
 
-    const certificacion = {
-      'Código': codigo,
-      'Fecha Emisión': fechaEmision,
-      Descripción: payload.descripcion || '',
-      Iniciativa: payload.iniciativa || '',
-      Tipo: payload.tipo || '',
-      Fuente: payload.fuente || '',
-      Finalidad: payload.finalidad || payload.finalidadDetallada || '',
-      Oficina: payload.oficina || '',
-      Solicitante: payload.solicitante || '',
-      'Cargo Solicitante': solicitante ? solicitante.descripcion : '',
-      'Email Solicitante': solicitante ? solicitante.extra1 : '',
-      'Número Autorización': payload.numeroAutorizacion || '',
-      'Cargo Autorizador': payload.cargoAutorizador || '',
-      Estado: payload.estado || 'Borrador',
-      'Disposición/Base Legal': payload.disposicion || configuracionGeneral.disposicion_base_legal || '',
-      'Monto Total': utils.toNumber(payload.montoTotal || payload.total || 0),
-      'Monto en Letras': payload.montoLetras || convertirNumeroALetras(payload.montoTotal || payload.total || 0),
-      'Fecha Creación': utils.formatDateTime(ahora),
-      'Creado Por': Session.getActiveUser().getEmail(),
-      'Fecha Modificación': '',
-      'Modificado Por': '',
-      'Fecha Anulación': '',
-      'Anulado Por': '',
-      'Motivo Anulación': '',
-      Plantilla: payload.plantilla || DEFAULT_TEMPLATES[0].id,
-      'URL Documento': '',
-      'URL PDF': '',
-      'Finalidad Detallada': payload.finalidadDetallada || payload.finalidad || ''
-    };
+function obtenerCatalogo(tipo) {
+  try {
+    const ss = getSpreadsheet();
+    const nombreHoja = {
+      iniciativas: SHEET_NAMES.CATALOGO_INICIATIVAS,
+      tipos: SHEET_NAMES.CATALOGO_TIPOS,
+      fuentes: SHEET_NAMES.CATALOGO_FUENTES,
+      finalidades: SHEET_NAMES.CATALOGO_FINALIDADES,
+      oficinas: SHEET_NAMES.CATALOGO_OFICINAS,
+      plantillas: SHEET_NAMES.PLANTILLAS
+    }[tipo];
 
-    repos.Certificacion.create(certificacion);
+    if (tipo === 'solicitantes') return obtenerSolicitantes();
+    if (tipo === 'firmantes') return obtenerFirmantes();
+    if (!nombreHoja) return [];
 
-    const items = (payload.items || []).map(function (item, index) {
-      return {
-        'Código Certificación': codigo,
-        Orden: index + 1,
-        Descripción: item.descripcion || '',
-        Cantidad: utils.toNumber(item.cantidad || item.cant),
-        Unidad: item.unidad || 'Unidad',
-        'Precio Unitario': utils.toNumber(item.precioUnitario || item.precio),
-        Subtotal: utils.toNumber(item.subtotal || 0),
-        'Fecha Creación': utils.formatDateTime(ahora),
-        'Creado Por': Session.getActiveUser().getEmail()
-      };
-    });
-
-    if (items.length) {
-      repos.Certificacion.replaceItems(codigo, items);
+    const sheet = ss.getSheetByName(nombreHoja);
+    if (!sheet) {
+      Logger.log(`La hoja "${nombreHoja}" no existe.`);
+      return [];
     }
 
-    const firmantes = (payload.firmantes || []).map(function (firmante, index) {
-      return {
-        'Código Certificación': codigo,
-        Orden: index + 1,
-        Nombre: firmante.nombre || '',
-        Cargo: firmante.cargo || '',
-        Obligatorio: utils.toBoolean(firmante.obligatorio !== false),
-        'Fecha Creación': utils.formatDateTime(ahora),
-        'Creado Por': Session.getActiveUser().getEmail()
-      };
-    });
+    const data = sheet.getDataRange().getValues();
+    if (data.length <= 1) return [];
+    
+    const catalogo = [];
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      if (!row[0]) continue;
 
-    if (firmantes.length) {
-      repos.Certificacion.replaceFirmantes(codigo, firmantes);
+      catalogo.push({
+        codigo: row[0],
+        nombre: row[1],
+        descripcion: row[2] || '',
+        activo: row[3] !== false
+      });
     }
 
-    return {
-      success: true,
-      codigo,
-      certificacion
-    };
+    return catalogo.filter(item => item.activo);
+  } catch (error) {
+    Logger.log('Error en obtenerCatalogo: ' + error.toString());
+    return [];
   }
 
-  function listarCertificaciones() {
-    const certificaciones = repos.Certificacion.listCertificaciones();
-    return certificaciones.map(function (cert) {
-      cert['Monto Total'] = utils.toNumber(cert['Monto Total']);
-      return cert;
-    });
+function buildPlantillaHeaderMap(headers) {
+  const normalizedHeaders = headers.map(normalizeHeaderName);
+  const map = {};
+
+  PLANTILLAS_COLUMN_DEFINITIONS.forEach(definition => {
+    const aliases = Array.isArray(definition.aliases)
+      ? definition.aliases.map(normalizeHeaderName)
+      : [];
+
+    let index = -1;
+    for (let i = 0; i < aliases.length; i++) {
+      const aliasIndex = normalizedHeaders.indexOf(aliases[i]);
+      if (aliasIndex !== -1) {
+        index = aliasIndex;
+        break;
+      }
+    }
+
+    if (index === -1 && definition.defaultIndex >= 0 && definition.defaultIndex < headers.length) {
+      index = definition.defaultIndex;
+    }
+
+    map[definition.field] = index;
+  });
+
+  return map;
+}
+
+function getPlantillaFieldValue(row, headerMap, field, fallback = '') {
+  if (!headerMap || typeof headerMap[field] !== 'number') {
+    return fallback;
   }
 
-  function obtenerEstadisticasDashboard() {
-    const certificaciones = listarCertificaciones();
-    if (!certificaciones.length) {
+  const index = headerMap[field];
+  if (index >= 0 && index < row.length) {
+    return row[index];
+  }
+
+  return fallback;
+}
+
+function extractGoogleResourceId(value) {
+  const texto = value === null || value === undefined ? '' : String(value).trim();
+  if (!texto) {
+    return '';
+  }
+
+  const match = texto.match(/[\w-]{25,}/);
+  return match ? match[0] : texto;
+}
+
+function parseBoolean(value, fallback = false) {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (value === null || value === undefined) {
+    return fallback;
+  }
+
+  const normalized = String(value).trim().toLowerCase();
+  if (!normalized) return fallback;
+
+  return ['true', '1', 'si', 'sí', 'activo', 'activa', 'yes'].indexOf(normalized) !== -1;
+}
+
+function obtenerPlantillasConfiguradas({ soloActivas = false } = {}) {
+  try {
+    const ahora = Date.now();
+    if (
+      plantillasCache &&
+      ahora - plantillasCacheTimestamp < PLANTILLAS_CACHE_TTL_MS &&
+      !soloActivas
+    ) {
+      return plantillasCache.slice();
+    }
+
+    const sheet = getSpreadsheet().getSheetByName(SHEET_NAMES.PLANTILLAS);
+    if (!sheet) {
+      Logger.log('La hoja "Plantillas" no existe.');
+      return [];
+    }
+
+    const data = sheet.getDataRange().getValues();
+    if (data.length <= 1) {
+      plantillasCache = [];
+      plantillasCacheTimestamp = ahora;
+      return [];
+    }
+
+    const headers = data[0] || [];
+    const headerMap = buildPlantillaHeaderMap(headers);
+
+    const plantillas = data.slice(1).map(row => {
+      const id = sanitizeText(getPlantillaFieldValue(row, headerMap, 'id'));
+      if (!id) {
+        return null;
+      }
+
+      const nombre = sanitizeText(getPlantillaFieldValue(row, headerMap, 'nombre'), id);
+      const descripcion = sanitizeText(getPlantillaFieldValue(row, headerMap, 'descripcion'));
+      const activa = parseBoolean(getPlantillaFieldValue(row, headerMap, 'activa'), true);
+      const firmantesRaw = parseNumber(getPlantillaFieldValue(row, headerMap, 'firmantes'), 1);
+      const firmantes = firmantesRaw > 0 ? Math.min(Math.round(firmantesRaw), 5) : 1;
+      const plantillaHtml = sanitizeText(getPlantillaFieldValue(row, headerMap, 'plantillaHtml'));
+      const docId = extractGoogleResourceId(plantillaHtml);
+      const firmanteId = sanitizeText(getPlantillaFieldValue(row, headerMap, 'firmanteId'));
+      const firmanteNombre = sanitizeText(getPlantillaFieldValue(row, headerMap, 'firmanteNombre'));
+      const firmanteCargo = sanitizeText(getPlantillaFieldValue(row, headerMap, 'firmanteCargo'));
+
+      return {
+        id,
+        nombre,
+        descripcion,
+        activa,
+        firmantes,
+        docId,
+        plantillaHtml,
+        firmanteId,
+        firmanteNombre,
+        firmanteCargo
+      };
+    }).filter(Boolean);
+
+    const plantillasOrdenadas = plantillas
+      .slice()
+      .sort((a, b) => {
+        if (a.activa !== b.activa) {
+          return a.activa ? -1 : 1;
+        }
+        return a.nombre.localeCompare(b.nombre || '', 'es', { sensitivity: 'base' });
+      });
+
+    plantillasCache = plantillasOrdenadas;
+    plantillasCacheTimestamp = ahora;
+
+    return soloActivas
+      ? plantillasOrdenadas.filter(plantilla => plantilla.activa)
+      : plantillasOrdenadas;
+  } catch (error) {
+    Logger.log('Error en obtenerPlantillasConfiguradas: ' + error.toString());
+    return [];
+  }
+}
+
+function getPlantillaConfigurada(plantillaId) {
+  if (!plantillaId) {
+    return null;
+  }
+
+  const plantillas = obtenerPlantillasConfiguradas();
+  return plantillas.find(plantilla => plantilla.id === plantillaId) || null;
+}
+
+function invalidarCachePlantillas() {
+  plantillasCache = null;
+  plantillasCacheTimestamp = 0;
+}
+
+function getCertificadosFolder() {
+  if (certificadosFolderCache) {
+    return certificadosFolderCache;
+  }
+
+  try {
+    certificadosFolderCache = DriveApp.getFolderById(CONFIG.CARPETA_CERTIFICADOS);
+  } catch (error) {
+    Logger.log('No se pudo acceder a la carpeta de certificados: ' + error.toString());
+    certificadosFolderCache = null;
+  }
+
+  return certificadosFolderCache;
+}
+
+// ===============================================
+// ESTADÍSTICAS DEL DASHBOARD
+// ===============================================
+
+function obtenerEstadisticasDashboard() {
+  try {
+    const certificaciones = obtenerCertificaciones();
+
+    if (!certificaciones || certificaciones.length === 0) {
       return {
         success: true,
         data: {
@@ -1138,24 +1604,19 @@ var CP = typeof CP !== 'undefined' ? CP : {};
       };
     }
 
-    const porEstado = certificaciones.reduce(function (acc, cert) {
-      const estado = cert.Estado || 'Sin estado';
-      acc[estado] = (acc[estado] || 0) + 1;
-      return acc;
-    }, {});
-
-    const montoTotal = certificaciones.reduce(function (acc, cert) {
-      return acc + utils.toNumber(cert['Monto Total']);
-    }, 0);
-
-    const recientes = certificaciones
-      .slice()
-      .sort(function (a, b) {
-        const fechaA = utils.toDate(a['Fecha Creación']);
-        const fechaB = utils.toDate(b['Fecha Creación']);
-        return fechaB - fechaA;
-      })
-      .slice(0, 5);
+    const estadisticas = {
+      total: certificaciones.length,
+      montoTotal: certificaciones.reduce((sum, cert) => sum + parseNumber(cert.montoTotal, 0), 0),
+      porEstado: {
+        'Borrador': 0,
+        'En revisión': 0,
+        'Autorización pendiente': 0,
+        'Activa': 0,
+        'Anulada': 0
+      },
+      porOficina: {},
+      certificacionesRecientes: certificaciones.slice(0, 10).map(cert => ({ ...cert }))
+    };
 
     return {
       success: true,
@@ -1165,16 +1626,10 @@ var CP = typeof CP !== 'undefined' ? CP : {};
         porEstado,
         certificacionesRecientes: recientes
       }
-    };
-  }
 
-  function generarDocumentoCertificacion(codigo) {
-    const certificacion = repos.Certificacion.getByCodigo(codigo);
-    if (!certificacion) {
-      return { success: false, error: 'Certificación no encontrada' };
-    }
-    const items = repos.Certificacion.listItems().filter(function (item) {
-      return item['Código Certificación'] === codigo;
+      // Contar por oficina
+      const nombreOficina = obtenerNombreOficina(cert.oficina);
+      estadisticas.porOficina[nombreOficina] = (estadisticas.porOficina[nombreOficina] || 0) + 1;
     });
     const firmantes = repos.Certificacion.listFirmantes().filter(function (firmante) {
       return firmante['Código Certificación'] === codigo;
@@ -1228,76 +1683,190 @@ var CP = typeof CP !== 'undefined' ? CP : {};
     };
   }
 
-  function obtenerCatalogo(tipo) {
-    const mapa = {
-      iniciativas: SHEETS.CATALOGO_INICIATIVAS,
-      tipos: SHEETS.CATALOGO_TIPOS,
-      fuentes: SHEETS.CATALOGO_FUENTES,
-      finalidades: SHEETS.CATALOGO_FINALIDADES,
-      oficinas: SHEETS.CATALOGO_OFICINAS,
-      plantillas: SHEETS.PLANTILLAS,
-      solicitantes: SHEETS.CONFIG_SOLICITANTES,
-      firmantes: SHEETS.CONFIG_FIRMANTES
+// ===============================================
+// FUNCIONES DE CÁLCULO Y UTILIDADES
+// ===============================================
+
+function recalcularTotalesCertificacion(codigoCertificacion) {
+  try {
+    const items = obtenerItemsCertificacion(codigoCertificacion);
+    const total = items.reduce((sum, item) => sum + parseNumber(item.subtotal, 0), 0);
+    const montoLetras = convertirNumeroALetrasTexto(total);
+
+    const sheet = ensureCertificacionesSheet();
+    const data = sheet.getDataRange().getValues();
+
+    for (let i = 1; i < data.length; i++) {
+      const fila = data[i];
+      const codigoFila = sanitizeText(getCertificacionFieldValue(fila, headerMap, 'codigo'));
+      if (codigoFila === codigoCertificacion) {
+        sheet.getRange(i + 1, montoTotalCol).setValue(total);
+        sheet.getRange(i + 1, montoLetrasCol).setValue(montoLetras);
+        break;
+      }
+    }
+
+    SpreadsheetApp.flush();
+
+    return { success: true, total: total, montoLetras: montoLetras };
+  } catch (error) {
+    Logger.log('Error en recalcularTotalesCertificacion: ' + error.toString());
+    return { success: false, error: error.toString() };
+  }
+
+function convertirNumeroALetrasTexto(numero) {
+  const cantidad = parseNumber(numero, 0);
+  if (cantidad === 0) {
+    return 'CERO CON 00/100 SOLES';
+  }
+
+  const unidades = ['', 'UNO', 'DOS', 'TRES', 'CUATRO', 'CINCO', 'SEIS', 'SIETE', 'OCHO', 'NUEVE'];
+  const decenas = ['', '', 'VEINTE', 'TREINTA', 'CUARENTA', 'CINCUENTA', 'SESENTA', 'SETENTA', 'OCHENTA', 'NOVENTA'];
+  const especiales = ['DIEZ', 'ONCE', 'DOCE', 'TRECE', 'CATORCE', 'QUINCE', 'DIECISÉIS', 'DIECISIETE', 'DIECIOCHO', 'DIECINUEVE'];
+  const centenas = ['', 'CIENTO', 'DOSCIENTOS', 'TRESCIENTOS', 'CUATROCIENTOS', 'QUINIENTOS', 'SEISCIENTOS', 'SETECIENTOS', 'OCHOCIENTOS', 'NOVECIENTOS'];
+
+  const entero = Math.floor(cantidad);
+  const decimales = Math.round((cantidad - entero) * 100);
+
+  function convertirGrupo(num) {
+    if (num === 0) return '';
+
+    let resultado = '';
+    const c = Math.floor(num / 100);
+    const d = Math.floor((num % 100) / 10);
+    const u = num % 10;
+
+    if (c > 0) {
+      if (c === 1 && d === 0 && u === 0) {
+        resultado += 'CIEN';
+      } else {
+        resultado += centenas[c];
+      }
+    }
+
+    if (d > 0) {
+      if (resultado) resultado += ' ';
+
+      if (d === 1) {
+        resultado += especiales[u];
+        return resultado;
+      }
+
+      if (d === 2 && u > 0) {
+        resultado += 'VEINTI';
+      } else {
+        resultado += decenas[d];
+      }
+    }
+
+    if (u > 0 && d !== 1) {
+      if (resultado) resultado += ' ';
+      if (d === 2) {
+        resultado += unidades[u].toLowerCase();
+      } else {
+        resultado += unidades[u];
+      }
+    }
+
+    if (!resultado) {
+      resultado = unidades[u];
+    }
+
+    return resultado.trim();
+  }
+
+  function convertirMiles(num) {
+    if (num === 0) return '';
+
+    const miles = Math.floor(num / 1000);
+    const resto = num % 1000;
+    let resultado = '';
+
+    if (miles > 0) {
+      if (miles === 1) {
+        resultado += 'MIL';
+      } else {
+        resultado += `${convertirGrupo(miles)} MIL`;
+      }
+    }
+
+    if (resto > 0) {
+      if (resultado) resultado += ' ';
+      resultado += convertirGrupo(resto);
+    }
+
+    return resultado.trim();
+  }
+
+  function convertirMillones(num) {
+    if (num === 0) return '';
+
+    const millones = Math.floor(num / 1000000);
+    const resto = num % 1000000;
+    let resultado = '';
+
+    if (millones > 0) {
+      if (millones === 1) {
+        resultado += 'UN MILLÓN';
+      } else {
+        resultado += `${convertirMiles(millones)} MILLONES`;
+      }
+    }
+
+    if (resto > 0) {
+      if (resultado) resultado += ' ';
+      resultado += convertirMiles(resto);
+    }
+
+    return resultado.trim();
+  }
+
+  const letras = convertirMillones(entero);
+  const decimalesTexto = decimales.toString().padStart(2, '0');
+
+  return `${letras || 'CERO'} CON ${decimalesTexto}/100 SOLES`;
+}
+
+function convertirNumeroALetras(numero) {
+  try {
+    const montoEnLetras = convertirNumeroALetrasTexto(numero);
+    return {
+      success: true,
+      montoLetras: montoEnLetras
     };
-    const sheetName = mapa[tipo];
-    if (!sheetName) {
-      return [];
-    }
-    if (sheetName === SHEETS.PLANTILLAS) {
-      return repos.Plantilla.list();
-    }
-    return repos.Catalog.list(sheetName);
-  }
-
-  function actualizarSolicitante(id, payload) {
-    if (!id) {
-      return { success: false, error: 'ID requerido' };
-    }
-    const registro = {
-      nombre: payload.nombre,
-      descripcion: payload.cargo,
-      activo: payload.activo !== false,
-      extra1: payload.email || '',
-      extra2: ''
+  } catch (error) {
+    Logger.log('Error en convertirNumeroALetras: ' + error.toString());
+    return {
+      success: false,
+      error: error.toString(),
+      montoLetras: 'CERO CON 00/100 SOLES'
     };
-    repos.Catalog.upsert(SHEETS.CONFIG_SOLICITANTES, id, registro);
-    return { success: true };
   }
 
-  function eliminarSolicitante(id) {
-    if (!id) {
-      return { success: false, error: 'ID requerido' };
-    }
-    return repos.Catalog.remove(SHEETS.CONFIG_SOLICITANTES, id);
-  }
+// ===============================================
+// FUNCIONES DE UTILIDAD
+// ===============================================
 
-  function actualizarFirmante(id, payload) {
-    if (!id) {
-      return { success: false, error: 'ID requerido' };
-    }
-    const registro = {
-      nombre: payload.nombre,
-      descripcion: payload.cargo,
-      activo: payload.activo !== false,
-      extra1: payload.orden || '',
-      extra2: ''
-    };
-    repos.Catalog.upsert(SHEETS.CONFIG_FIRMANTES, id, registro);
-    return { success: true };
-  }
+function registrarActividad(accion, detalles = '') {
+  try {
+    const sheet = getSpreadsheet().getSheetByName(SHEET_NAMES.BITACORA);
+    if (!sheet) return;
 
-  function eliminarFirmante(id) {
-    if (!id) {
-      return { success: false, error: 'ID requerido' };
-    }
-    return repos.Catalog.remove(SHEETS.CONFIG_FIRMANTES, id);
-  }
+    const usuario = getActiveUserEmail();
+    const fecha = new Date();
 
-  function actualizarConfiguracionGeneral(payload) {
-    Object.keys(payload).forEach(function (key) {
-      repos.Config.upsert(key, payload[key], '');
-    });
-    return { success: true };
+    const fila = [
+      fecha,
+      usuario,
+      accion,
+      detalles,
+      usuario
+    ];
+    
+    sheet.appendRow(fila);
+    SpreadsheetApp.flush();
+  } catch (error) {
+    Logger.log('Error en registrarActividad: ' + error.toString());
   }
 
   function configurarSistema() {
@@ -1542,14 +2111,250 @@ function configurarSistema() {
   return CP.Controllers.configurarSistema();
 }
 
-function crearSoloEstructura() {
-  return CP.Controllers.crearSoloEstructura();
-}
+function generarCertificadoPerfecto(codigoCertificacion) {
+  try {
+    const certificacion = obtenerCertificacionPorCodigo(codigoCertificacion);
+    if (!certificacion) {
+      return { success: false, error: 'Certificación no encontrada' };
+    }
+    
+    // Crear documento con el formato EXACTO del que me mostraste
+    const doc = DocumentApp.create(`Certificacion_${codigoCertificacion}`);
+    const body = doc.getBody();
 
-function normalizarEstructuraSistema() {
-  return CP.Controllers.normalizarEstructuraSistema();
-}
-
-function resetearSistema() {
-  return CP.Controllers.resetearSistema();
+    const folder = getCertificadosFolder();
+    if (folder) {
+      try {
+        const docFile = DriveApp.getFileById(doc.getId());
+        folder.addFile(docFile);
+        const parents = docFile.getParents();
+        const folderId = folder.getId();
+        const padresAEliminar = [];
+        while (parents.hasNext()) {
+          const parent = parents.next();
+          if (parent.getId() !== folderId) {
+            padresAEliminar.push(parent);
+          }
+        }
+        padresAEliminar.forEach(parent => parent.removeFile(docFile));
+      } catch (folderError) {
+        Logger.log('No se pudo mover el documento perfecto a la carpeta configurada: ' + folderError.toString());
+      }
+    }
+    
+    // Configurar márgenes
+    body.setMarginTop(50);
+    body.setMarginBottom(50);
+    body.setMarginLeft(60);
+    body.setMarginRight(60);
+    
+    // Header con logo real de Cáritas Lima
+    const headerTable = body.appendTable();
+    const headerRow = headerTable.appendTableRow();
+    
+    // Logo (usar el logo real como en tu imagen)
+    const logoCell = headerRow.appendTableCell();
+    logoCell.appendParagraph('🍀 Cáritas').editAsText().setBold(true).setFontSize(16).setForegroundColor('#019952');
+    logoCell.appendParagraph('LIMA').editAsText().setBold(true).setFontSize(14).setForegroundColor('#019952');
+    logoCell.setWidth(100);
+    
+    // Título centrado
+    const titleCell = headerRow.appendTableCell();
+    titleCell.appendParagraph('Certificación Presupuestal').setAlignment(DocumentApp.HorizontalAlignment.CENTER).editAsText().setBold(true).setFontSize(18);
+    
+    headerTable.setBorderWidth(0);
+    
+    body.appendParagraph(''); // Espaciado
+    
+    // Información básica (formato exacto de tu imagen)
+    const infoTable = body.appendTable();
+    infoTable.setBorderWidth(0);
+    
+    // Fila 1: Número y Fecha (como en tu imagen)
+    const row1 = infoTable.appendTableRow();
+    row1.appendTableCell(`Número: ${certificacion.codigo}`).editAsText().setBold(0, 7, true).setFontSize(11);
+    row1.appendTableCell(`Fecha: ${formatearFechaDocumento(certificacion.fechaEmision)}`).editAsText().setBold(0, 5, true).setFontSize(11);
+    
+    // Responsable del área solicitante
+    const row2 = infoTable.appendTableRow();
+    const responsableCell = row2.appendTableCell(`Responsable del área solicitante: ${certificacion.solicitante}`);
+    responsableCell.setWidth(400);
+    row2.appendTableCell(''); // Celda vacía para mantener estructura
+    responsableCell.editAsText().setBold(0, 35, true).setFontSize(11);
+    
+    // Oficina solicitante
+    const row3 = infoTable.appendTableRow();
+    const oficinaCell = row3.appendTableCell(`Oficina solicitante: ${obtenerNombreOficina(certificacion.oficina)}`);
+    row3.appendTableCell(''); // Celda vacía
+    oficinaCell.editAsText().setBold(0, 18, true).setFontSize(11);
+    
+    // Iniciativa (formato exacto)
+    const row4 = infoTable.appendTableRow();
+    const iniciativaText = `Iniciativa: ${obtenerNombreCatalogo('iniciativas', certificacion.iniciativa)} y ${certificacion.descripcion}`;
+    const iniciativaCell = row4.appendTableCell(iniciativaText);
+    row4.appendTableCell(''); // Celda vacía
+    iniciativaCell.editAsText().setBold(0, 10, true).setFontSize(11);
+    
+    body.appendParagraph(''); // Espaciado
+    
+    // Tabla de ítems con formato EXACTO (como tu imagen)
+    if (certificacion.items && certificacion.items.length > 0) {
+      const itemsTable = body.appendTable();
+      itemsTable.setBorderWidth(1);
+      itemsTable.setBorderColor('#000000');
+      
+      // Encabezados con fondo gris (EXACTO como tu imagen)
+      const headerItemsRow = itemsTable.appendTableRow();
+      const headerCells = [
+        headerItemsRow.appendTableCell('Descripción'),
+        headerItemsRow.appendTableCell('Cant.'),
+        headerItemsRow.appendTableCell('C/U (S/)'),
+        headerItemsRow.appendTableCell('C/T(S/)')
+      ];
+      
+      // Aplicar estilo a encabezados
+      headerCells.forEach(cell => {
+        cell.setBackgroundColor('#D3D3D3');
+        cell.editAsText().setBold(true).setFontSize(10);
+        cell.setPaddingTop(8);
+        cell.setPaddingBottom(8);
+        cell.setPaddingLeft(8);
+        cell.setPaddingRight(8);
+      });
+      
+      // Filas de datos
+      certificacion.items.forEach(item => {
+        const dataRow = itemsTable.appendTableRow();
+        dataRow.appendTableCell(item.descripcion).editAsText().setFontSize(10);
+        dataRow.appendTableCell(item.cantidad.toString()).editAsText().setFontSize(10);
+        dataRow.appendTableCell(`S/ ${item.precioUnitario.toFixed(2)}`).editAsText().setFontSize(10);
+        dataRow.appendTableCell(`S/ ${item.subtotal.toFixed(2)}`).editAsText().setFontSize(10);
+      });
+      
+      // Fila de total con fondo gris (EXACTO como tu imagen)
+      const totalRow = itemsTable.appendTableRow();
+      const totalCells = [
+        totalRow.appendTableCell('Total'),
+        totalRow.appendTableCell('1'),
+        totalRow.appendTableCell(`S/ ${certificacion.montoTotal.toFixed(2)}`),
+        totalRow.appendTableCell(`S/ ${certificacion.montoTotal.toFixed(2)}`)
+      ];
+      
+      totalCells.forEach(cell => {
+        cell.setBackgroundColor('#E5E5E5');
+        cell.editAsText().setBold(true).setFontSize(10);
+        cell.setPaddingTop(8);
+        cell.setPaddingBottom(8);
+        cell.setPaddingLeft(8);
+        cell.setPaddingRight(8);
+      });
+    }
+    
+    body.appendParagraph(''); // Espaciado
+    
+    // Información adicional (formato exacto)
+    body.appendParagraph(`Base Legal: ${certificacion.disposicion || obtenerDisposicionPorDefecto()}`).editAsText().setBold(0, 10, true).setFontSize(10);
+    body.appendParagraph(`Fuente de Financiamiento: ${obtenerNombreCatalogo('fuentes', certificacion.fuente)}`).editAsText().setBold(0, 24, true).setFontSize(10);
+    body.appendParagraph(`Finalidad: ${certificacion.finalidad}`).editAsText().setBold(0, 9, true).setFontSize(10);
+    body.appendParagraph(`Monto: S/ ${certificacion.montoTotal.toFixed(2)} | ${certificacion.montoLetras}`).editAsText().setBold(0, 6, true).setFontSize(10);
+    
+    body.appendParagraph(''); // Espaciado
+    
+    // Disposiciones (formato exacto)
+    body.appendParagraph('Disposiciones:').editAsText().setBold(true).setFontSize(11);
+    
+    const disposicionesTexto = [
+      'Se ha considerado la evaluación realizada por el área de logística desde la oficina de administración y según el estudio de mercado (cuadro comparativo)',
+      'La presente autorización presupuestal se emite en base a la disponibilidad presupuestal aprobada para la iniciativa',
+      'El responsable de la ejecución del gasto deberá presentar la documentación sustentatoria de acuerdo a las normas vigentes.'
+    ];
+    
+    disposicionesTexto.forEach(disposicion => {
+      const bulletPara = body.appendParagraph(`• ${disposicion}`);
+      bulletPara.editAsText().setFontSize(10);
+      bulletPara.setIndentFirstLine(20);
+    });
+    
+    body.appendParagraph(''); // Espaciado
+    
+    // Adjuntos
+    body.appendParagraph('Adjuntos: Documento sustentatorio obligatorios (contrataciones, proformas, términos de referencia, etc.)').editAsText().setBold(0, 8, true).setFontSize(10);
+    
+    body.appendParagraph(''); // Espaciado
+    
+    // Fecha de firma (formato exacto)
+    const fechaFirma = new Date(certificacion.fechaEmision);
+    body.appendParagraph(`Firmado en fecha ${fechaFirma.getDate()} de ${obtenerNombreMesCompleto(fechaFirma.getMonth())} de ${fechaFirma.getFullYear()} por:`).editAsText().setBold(0, 16, true).setFontSize(10);
+    
+    body.appendParagraph(''); // Espaciado
+    body.appendParagraph(''); // Espaciado
+    body.appendParagraph(''); // Espaciado
+    body.appendParagraph(''); // Espaciado
+    
+    // Firma REAL según plantilla (EXACTO como tu imagen)
+    const firmantePorPlantilla = obtenerFirmantePorPlantilla(certificacion.plantilla);
+    
+    // Línea de firma
+    body.appendParagraph('_'.repeat(35)).setAlignment(DocumentApp.HorizontalAlignment.CENTER);
+    
+    // Aquí iría la imagen real de la firma si la tienes
+    // Por ahora usamos el texto con el formato exacto
+    body.appendParagraph(firmantePorPlantilla.nombre).setAlignment(DocumentApp.HorizontalAlignment.CENTER).editAsText().setBold(true).setFontSize(11);
+    body.appendParagraph(firmantePorPlantilla.cargo).setAlignment(DocumentApp.HorizontalAlignment.CENTER).editAsText().setFontSize(10);
+    body.appendParagraph('Cáritas Lima').setAlignment(DocumentApp.HorizontalAlignment.CENTER).editAsText().setFontSize(10);
+    
+    body.appendParagraph(''); // Espaciado
+    body.appendParagraph(''); // Espaciado
+    
+    // Footer de control electrónico (EXACTO como tu imagen)
+    const numeroSolicitud = codigoCertificacion.split('-')[2];
+    const año = fechaFirma.getFullYear();
+    const mesAbrev = obtenerNombreMes(fechaFirma.getMonth()).substring(0, 4);
+    
+    const controlText = `*Control electrónico con asunto - Re: FP 149 Aprobación cédula Solicitud ${numeroSolicitud} de ${año} ***COMPRA ADICIONAL ACEITE*** enviado por la Administración el ${fechaFirma.getDate()} ${mesAbrev} ${año}. ${fechaFirma.getHours()}:${fechaFirma.getMinutes().toString().padStart(2, '0')} ${fechaFirma.getHours() >= 12 ? 'p.m.' : 'a.m.'}*`;
+    
+    body.appendParagraph(controlText).editAsText().setFontSize(7);
+    
+    doc.saveAndClose();
+    
+    // Generar PDF
+    let pdf;
+    try {
+      const pdfBlob = doc.getAs(MimeType.PDF);
+      pdfBlob.setName(`Certificacion_${codigoCertificacion}.pdf`);
+      pdf = folder ? folder.createFile(pdfBlob) : DriveApp.createFile(pdfBlob);
+    } catch (pdfError) {
+      Logger.log('No se pudo crear el PDF perfecto en la carpeta configurada: ' + pdfError.toString());
+      const fallbackBlob = doc.getAs(MimeType.PDF);
+      fallbackBlob.setName(`Certificacion_${codigoCertificacion}.pdf`);
+      pdf = DriveApp.createFile(fallbackBlob);
+    }
+    
+    // URLs
+    const urlDocumento = `https://docs.google.com/document/d/${doc.getId()}/edit`;
+    const urlPDF = `https://drive.google.com/file/d/${pdf.getId()}/view`;
+    const urlVistaPrevia = `https://docs.google.com/document/d/${doc.getId()}/preview`;
+    
+    // Actualizar URLs en certificación
+    actualizarCertificacion(codigoCertificacion, {
+      urlDocumento: urlDocumento,
+      urlPDF: urlPDF
+    });
+    
+    Logger.log(`📄 Certificado generado: ${codigoCertificacion}`);
+    
+    registrarActividad('GENERAR_CERTIFICADO_PERFECTO', `Código: ${codigoCertificacion}`);
+    
+    return {
+      success: true,
+      urlDocumento: urlDocumento,
+      urlPDF: urlPDF,
+      urlVistaPrevia: urlVistaPrevia,
+      documentoId: doc.getId(),
+      pdfId: pdf.getId()
+    };
+  } catch (error) {
+    Logger.log('Error en generarCertificadoPerfecto: ' + error.toString());
+    return { success: false, error: error.toString() };
+  }
 }

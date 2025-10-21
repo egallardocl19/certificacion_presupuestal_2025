@@ -969,11 +969,6 @@
             document.getElementById('baseFechaCertificacion').value = new Date().toISOString().split('T')[0];
 
             programarActualizacionFinalidad(true);
-
-            const plantillaSelect = document.getElementById('plantilla');
-            if (plantillaSelect) {
-                plantillaSelect.addEventListener('change', () => aplicarPlantillaSeleccionada());
-            }
         }
 
         // Función debounce para optimizar búsquedas
@@ -1082,7 +1077,6 @@
                         console.error('Error cargando certificaciones:', error);
                         certificaciones = [];
                         cargarTablaCertificaciones();
-                        mostrarAlerta('No se pudieron cargar las certificaciones: ' + (error && error.message ? error.message : 'Error desconocido'), 'error');
                         reject(error);
                     })
                     .obtenerCertificaciones();
@@ -1286,8 +1280,6 @@
             if (!finalidadEditadaManual || !document.getElementById('finalidad').value.trim()) {
                 programarActualizacionFinalidad(true);
             }
-
-            aplicarPlantillaSeleccionada();
 
             console.log('Selectores llenados con catálogos');
         }
@@ -1894,7 +1886,6 @@
                 iniciativa: formData.get('iniciativa'),
                 tipo: formData.get('tipo'),
                 fuente: formData.get('fuente'),
-                plantilla: formData.get('plantilla'),
                 finalidad: finalidadTexto,
                 finalidadDetallada: finalidadTexto,
                 items: [],
@@ -2013,18 +2004,11 @@
             finalidadEditadaManual = false;
             ultimaFinalidadGenerada = '';
 
-            const plantillaSelect = document.getElementById('plantilla');
-            if (plantillaSelect) {
-                const primeraActiva = catalogos.plantillas.find(p => p.activa);
-                plantillaSelect.value = primeraActiva ? primeraActiva.id : '';
-            }
-
             // Reinicializar
             setTimeout(() => {
                 agregarItem();
                 cargarFirmantes();
                 programarActualizacionFinalidad(true);
-                aplicarPlantillaSeleccionada();
             }, 100);
         }
 
