@@ -163,6 +163,7 @@ function prepararDatosCertificacion(datos, usuarioActual) {
     tipo: sanitizeText(datosCompletos.tipo),
     fuente: sanitizeText(datosCompletos.fuente),
     finalidad: sanitizeText(datosCompletos.finalidad),
+    finalidadDetallada: sanitizeText(datosCompletos.finalidadDetallada || datosCompletos.finalidad),
     oficina: sanitizeText(datosCompletos.oficina),
     solicitante: sanitizeText(datosCompletos.solicitante),
     cargoSolicitante: sanitizeText(datosCompletos.cargoSolicitante),
@@ -276,6 +277,7 @@ function crearCertificacion(datos) {
 
     const datosCompletos = prepararDatosCertificacion(datos, usuario);
     const finalidad = sanitizeText(datosCompletos.finalidad) || generarFinalidadAutomatica(datosCompletos.descripcion);
+    const finalidadDetallada = sanitizeText(datosCompletos.finalidadDetallada) || finalidad;
     const disposicion = sanitizeText(datosCompletos.disposicion) || obtenerDisposicionPorDefecto();
     const plantilla = sanitizeText(datosCompletos.plantilla) || 'plantilla_evelyn';
 
@@ -307,7 +309,7 @@ function crearCertificacion(datos) {
       plantilla,
       '',
       '',
-      finalidad
+      finalidadDetallada
     ];
 
     sheet.appendRow(fila);

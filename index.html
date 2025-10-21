@@ -41,7 +41,7 @@
         }
 
         .logo {
-            max-height: 64px;
+            max-height: 68px;
             max-width: 180px;
             width: auto;
             height: auto;
@@ -408,15 +408,29 @@
             line-height: 1;
         }
 
-        .ai-button {
-            background: linear-gradient(135deg, #9c27b0, #7b1fa2);
-            color: white;
-            border: none;
-            padding: 8px 15px;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 12px;
-            margin-left: 10px;
+        .finalidad-ayuda {
+            margin-bottom: 15px;
+            color: #4a4a4a;
+            font-size: 0.95rem;
+        }
+
+        .finalidad-editor textarea {
+            min-height: 140px;
+            font-size: 15px;
+            line-height: 1.5;
+        }
+
+        .finalidad-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 12px;
+        }
+
+        .finalidad-hint {
+            font-size: 0.9rem;
+            color: #666;
+            margin-top: 6px;
         }
 
         .multiple-cert-container {
@@ -737,12 +751,16 @@
 
                 <!-- Finalidad -->
                 <div class="config-section">
-                    <h3 style="color: #019952;">📄 Finalidad generada automáticamente</h3>
-                    <p class="info-text">La finalidad se actualiza de forma automática con base en la información ingresada, pero puede editarla si necesita añadir más detalles.</p>
-                    <div class="form-group" style="position: relative;">
+                    <h3 style="color: #019952;">🎯 Finalidad de la certificación</h3>
+                    <p class="finalidad-ayuda">La finalidad se genera automáticamente con la información ingresada. Puedes editarla libremente o utilizar los botones para regenerarla o mejorarla con IA.</p>
+                    <div class="form-group finalidad-editor">
                         <label for="finalidad">Finalidad</label>
-                        <textarea id="finalidad" name="finalidad" placeholder="Finalidad o propósito específico del gasto..." rows="5"></textarea>
-                        <button type="button" class="ai-button" onclick="generarFinalidadConIA()">🤖 Generar con IA</button>
+                        <textarea id="finalidad" name="finalidad" placeholder="La finalidad se completará automáticamente en base a la descripción, iniciativa y otros datos."></textarea>
+                        <div class="finalidad-actions">
+                            <button type="button" class="btn btn-secondary" onclick="regenerarFinalidadAutomatica()">🔁 Regenerar finalidad</button>
+                            <button type="button" class="btn btn-info" onclick="generarFinalidadConIA()">🤖 Mejorar con IA</button>
+                        </div>
+                        <div class="finalidad-hint">Cuando modifiques este texto manualmente, dejaremos de actualizarlo automáticamente hasta que solicites regenerarlo.</div>
                     </div>
                 </div>
 
@@ -880,6 +898,8 @@
         let contadorFirmantes = 0;
         let contadorMultiples = 0;
         let finalidadEditadaManual = false;
+        let ultimaFinalidadGenerada = '';
+        let temporizadorFinalidad = null;
 
         // Inicialización
         document.addEventListener('DOMContentLoaded', function() {
@@ -913,22 +933,21 @@
             const campoFinalidad = document.getElementById('finalidad');
             if (campoFinalidad) {
                 campoFinalidad.addEventListener('input', () => {
-                    finalidadEditadaManual = campoFinalidad.value.trim().length > 0;
-                    if (!finalidadEditadaManual) {
-                        actualizarFinalidadAutomatica(true);
-                    }
+                    const valor = campoFinalidad.value.trim();
+                    finalidadEditadaManual = valor !== '' && valor !== ultimaFinalidadGenerada;
                 });
             }
 
-            ['descripcion', 'iniciativa', 'tipo', 'fuente', 'oficina'].forEach(id => {
+            const descripcionField = document.getElementById('descripcion');
+            if (descripcionField) {
+                descripcionField.addEventListener('input', () => programarActualizacionFinalidad());
+                descripcionField.addEventListener('blur', () => programarActualizacionFinalidad());
+            }
+
+            ['iniciativa', 'tipo', 'fuente', 'oficina'].forEach(id => {
                 const elemento = document.getElementById(id);
                 if (!elemento) return;
-                const evento = elemento.tagName === 'TEXTAREA' ? 'input' : 'change';
-                elemento.addEventListener(evento, () => {
-                    if (!finalidadEditadaManual || !document.getElementById('finalidad').value.trim()) {
-                        actualizarFinalidadAutomatica();
-                    }
-                });
+                elemento.addEventListener('change', () => programarActualizacionFinalidad());
             });
 
             // Eventos de filtros
@@ -938,7 +957,7 @@
             document.getElementById('fechaCertificacion').value = new Date().toISOString().split('T')[0];
             document.getElementById('baseFechaCertificacion').value = new Date().toISOString().split('T')[0];
 
-            actualizarFinalidadAutomatica(true);
+            programarActualizacionFinalidad(true);
         }
 
         // Función debounce para optimizar búsquedas
@@ -1216,7 +1235,7 @@
             });
 
             if (!finalidadEditadaManual || !document.getElementById('finalidad').value.trim()) {
-                actualizarFinalidadAutomatica(true);
+                programarActualizacionFinalidad(true);
             }
 
             console.log('Selectores llenados con catálogos');
@@ -1294,6 +1313,27 @@
             }
         }
 
+        function programarActualizacionFinalidad(forzar = false) {
+            if (temporizadorFinalidad) {
+                clearTimeout(temporizadorFinalidad);
+            }
+
+            temporizadorFinalidad = setTimeout(() => {
+                actualizarFinalidadAutomatica({ forzar });
+            }, 180);
+        }
+
+        function regenerarFinalidadAutomatica() {
+            finalidadEditadaManual = false;
+            actualizarFinalidadAutomatica({ forzar: true });
+            const campoFinalidad = document.getElementById('finalidad');
+            if (campoFinalidad && campoFinalidad.value.trim()) {
+                mostrarAlerta('Finalidad generada nuevamente con la información actual.', 'info');
+            } else {
+                mostrarAlerta('Completa la descripción y los datos clave para generar la finalidad automática.', 'warning');
+            }
+        }
+
         function obtenerFinalidadAutomatica() {
             const descripcion = (document.getElementById('descripcion')?.value || '').trim();
             if (!descripcion) {
@@ -1319,35 +1359,42 @@
                 }
             }
 
-            const complementos = [];
+            const detalles = [];
             const iniciativaNombre = obtenerNombreCatalogo('iniciativas', document.getElementById('iniciativa')?.value);
-            const oficinaNombre = obtenerNombreCatalogo('oficinas', document.getElementById('oficina')?.value);
             const tipoNombre = obtenerNombreCatalogo('tipos', document.getElementById('tipo')?.value);
             const fuenteNombre = obtenerNombreCatalogo('fuentes', document.getElementById('fuente')?.value);
+            const oficinaNombre = obtenerNombreCatalogo('oficinas', document.getElementById('oficina')?.value);
+            const totalTexto = document.getElementById('totalMonto')?.textContent || '0';
+            const totalNumerico = Number(totalTexto.replace(/[^0-9.]/g, ''));
 
             if (tipoNombre) {
-                complementos.push(`mediante el gasto tipificado como ${tipoNombre.toLowerCase()}`);
+                detalles.push(`correspondiente al tipo ${tipoNombre}`);
             }
             if (iniciativaNombre) {
-                complementos.push(`en el marco de la iniciativa ${iniciativaNombre}`);
+                detalles.push(`en el marco de la iniciativa ${iniciativaNombre}`);
             }
             if (oficinaNombre) {
-                complementos.push(`a cargo de la ${oficinaNombre}`);
+                detalles.push(`para la ${oficinaNombre}`);
             }
             if (fuenteNombre) {
-                complementos.push(`financiado con recursos de ${fuenteNombre}`);
+                detalles.push(`con cargo a ${fuenteNombre}`);
+            }
+            if (!Number.isNaN(totalNumerico) && totalNumerico > 0) {
+                detalles.push(`monto estimado: S/ ${totalNumerico.toLocaleString('es-PE', { minimumFractionDigits: 2 })}`);
             }
 
-            if (complementos.length) {
-                finalidad += '. ' + complementos.join(', ') + '.';
-            } else if (!finalidad.endsWith('.')) {
+            if (detalles.length) {
+                finalidad += '. ' + detalles.join('; ');
+            }
+            if (!finalidad.endsWith('.')) {
                 finalidad += '.';
             }
 
             return finalidad;
         }
 
-        function actualizarFinalidadAutomatica(forzar = false) {
+        function actualizarFinalidadAutomatica({ forzar = false } = {}) {
+            temporizadorFinalidad = null;
             const campoFinalidad = document.getElementById('finalidad');
             if (!campoFinalidad) return;
 
@@ -1355,15 +1402,24 @@
             const valorActual = campoFinalidad.value.trim();
 
             if (!finalidadGenerada) {
-                if (forzar || !finalidadEditadaManual) {
+                if (forzar || (!finalidadEditadaManual && valorActual)) {
                     campoFinalidad.value = '';
+                    ultimaFinalidadGenerada = '';
+                }
+                if (!valorActual) {
                     finalidadEditadaManual = false;
                 }
                 return;
             }
 
-            if (forzar || !valorActual || !finalidadEditadaManual) {
+            if (
+                forzar ||
+                !finalidadEditadaManual ||
+                valorActual === '' ||
+                valorActual === ultimaFinalidadGenerada
+            ) {
                 campoFinalidad.value = finalidadGenerada;
+                ultimaFinalidadGenerada = finalidadGenerada;
                 finalidadEditadaManual = false;
             }
         }
@@ -1653,14 +1709,12 @@
                 })
                 .convertirNumeroALetras(total);
 
-            if (!finalidadEditadaManual) {
-                actualizarFinalidadAutomatica();
-            }
+            programarActualizacionFinalidad();
         }
 
         // Generar finalidad con IA
         function generarFinalidadConIA() {
-            const descripcion = document.getElementById('descripcion').value;
+            const descripcion = document.getElementById('descripcion').value.trim();
             const campoFinalidad = document.getElementById('finalidad');
             const datos = {
                 descripcion,
@@ -1676,6 +1730,7 @@
                 return;
             }
 
+            mostrarAlerta('Generando una finalidad sugerida con IA. Esto puede tardar unos segundos.', 'info');
             mostrarLoading(true, 'Generando finalidad con IA...');
 
             google.script.run
@@ -1684,11 +1739,13 @@
                     if (resultado.success && resultado.finalidad) {
                         const textoFinalidad = resultado.finalidad.trim().endsWith('.') ? resultado.finalidad.trim() : `${resultado.finalidad.trim()}.`;
                         campoFinalidad.value = textoFinalidad;
+                        ultimaFinalidadGenerada = textoFinalidad;
                         finalidadEditadaManual = true;
                         mostrarAlerta('Finalidad generada exitosamente', 'success');
                     } else {
                         const fallback = (resultado.finalidad || obtenerFinalidadAutomatica() || '').trim();
                         campoFinalidad.value = fallback;
+                        ultimaFinalidadGenerada = fallback;
                         finalidadEditadaManual = true;
                         mostrarAlerta('No se pudo generar la finalidad automáticamente. Se sugirió un texto base.', 'warning');
                     }
@@ -1699,6 +1756,7 @@
                     if (fallback) {
                         campoFinalidad.value = fallback;
                     }
+                    ultimaFinalidadGenerada = campoFinalidad.value.trim();
                     finalidadEditadaManual = true;
                     mostrarAlerta('Error de conexión al generar la finalidad: ' + error.message, 'error');
                 })
@@ -1712,13 +1770,19 @@
             const submitButton = form.querySelector('button[type="submit"]');
 
             // Recolectar datos del formulario
+            const fechaCertificacion = formData.get('fechaCertificacion');
+            const finalidadTexto = (formData.get('finalidad') || '').trim();
+
             const datos = {
-                fecha: formData.get('fechaCertificacion'),
+                fecha: fechaCertificacion,
+                fechaCertificacion,
                 descripcion: formData.get('descripcion'),
                 oficina: formData.get('oficina'),
                 iniciativa: formData.get('iniciativa'),
                 tipo: formData.get('tipo'),
                 fuente: formData.get('fuente'),
+                finalidad: finalidadTexto,
+                finalidadDetallada: finalidadTexto,
                 items: [],
                 firmantes: []
             };
@@ -1772,8 +1836,9 @@
                 return;
             }
 
-            const finalidadManual = (formData.get('finalidad') || '').trim();
-            datos.finalidad = (finalidadManual || obtenerFinalidadAutomatica() || '').trim();
+            const finalidadCalculada = (finalidadTexto || obtenerFinalidadAutomatica() || '').trim();
+            datos.finalidad = finalidadCalculada;
+            datos.finalidadDetallada = finalidadCalculada;
 
             if (submitButton) {
                 submitButton.dataset.originalText = submitButton.dataset.originalText || submitButton.textContent;
@@ -1832,12 +1897,13 @@
             document.getElementById('fechaCertificacion').value = new Date().toISOString().split('T')[0];
             contadorItems = 0;
             finalidadEditadaManual = false;
+            ultimaFinalidadGenerada = '';
 
             // Reinicializar
             setTimeout(() => {
                 agregarItem();
                 cargarFirmantes();
-                actualizarFinalidadAutomatica(true);
+                programarActualizacionFinalidad(true);
             }, 100);
         }
 
