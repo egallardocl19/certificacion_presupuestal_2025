@@ -3,10 +3,24 @@
 // Google Apps Script Setup
 // ===============================================
 
+const FINALIDAD_DETALLADA_ALIASES_PROPERTY = 'FINALIDAD_DETALLADA_ALIASES';
+const DEFAULT_FINALIDAD_DETALLADA_ALIASES = Object.freeze([
+  'finalidad detallada',
+  'finalidad detallada / justificación',
+  'finalidad detallada / justificacion',
+  'finalidad (detalle)',
+  'detalle de la finalidad',
+  'detalle finalidad',
+  'justificación',
+  'justificacion'
+]);
+
 function configurarSistema() {
   try {
     Logger.log('Iniciando configuración del sistema...');
-    
+
+    asegurarPropiedadesDeScript();
+
     // Crear estructura de hojas
     crearEstructuraHojas();
     
@@ -19,6 +33,32 @@ function configurarSistema() {
     Logger.log('Error en configurarSistema: ' + error.toString());
     return { success: false, error: error.toString() };
   }
+}
+
+function asegurarPropiedadesDeScript() {
+  const properties = PropertiesService.getScriptProperties();
+  if (!properties) {
+    Logger.log('No se pudo acceder a las propiedades del script para inicializar alias de finalidad detallada.');
+    return;
+  }
+
+  try {
+    const raw = properties.getProperty(FINALIDAD_DETALLADA_ALIASES_PROPERTY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return;
+      }
+    }
+  } catch (error) {
+    Logger.log('Alias de finalidad detallada inválidos, se restablecerán a los valores por defecto: ' + error.toString());
+  }
+
+  properties.setProperty(
+    FINALIDAD_DETALLADA_ALIASES_PROPERTY,
+    JSON.stringify(DEFAULT_FINALIDAD_DETALLADA_ALIASES)
+  );
+  Logger.log('Alias de finalidad detallada inicializados en las propiedades del script.');
 }
 
 function crearEstructuraHojas() {

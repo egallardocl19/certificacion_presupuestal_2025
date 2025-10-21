@@ -15,6 +15,18 @@ const CONFIG = {
   CUSTOMER_ID: 'cus_T7t8xrMoWnLOgO'
 };
 
+const FINALIDAD_DETALLADA_ALIASES_PROPERTY = 'FINALIDAD_DETALLADA_ALIASES';
+const DEFAULT_FINALIDAD_DETALLADA_ALIASES = Object.freeze([
+  'finalidad detallada',
+  'finalidad detallada / justificación',
+  'finalidad detallada / justificacion',
+  'finalidad (detalle)',
+  'detalle de la finalidad',
+  'detalle finalidad',
+  'justificación',
+  'justificacion'
+]);
+
 const SHEET_NAMES = Object.freeze({
   CERTIFICACIONES: 'Certificaciones',
   ITEMS: 'Items',
@@ -93,16 +105,29 @@ function findColumnIndexByAliases(headers, aliases, fallbackIndex = -1) {
 }
 
 function getFinalidadDetalladaAliases() {
-  return [
-    'finalidad detallada',
-    'finalidad detallada / justificación',
-    'finalidad detallada / justificacion',
-    'finalidad (detalle)',
-    'detalle de la finalidad',
-    'detalle finalidad',
-    'justificación',
-    'justificacion'
-  ];
+  try {
+    const properties = PropertiesService.getScriptProperties();
+    const rawAliases = properties.getProperty(FINALIDAD_DETALLADA_ALIASES_PROPERTY);
+
+    if (!rawAliases) {
+      return DEFAULT_FINALIDAD_DETALLADA_ALIASES;
+    }
+
+    const parsedAliases = JSON.parse(rawAliases);
+    if (!Array.isArray(parsedAliases)) {
+      return DEFAULT_FINALIDAD_DETALLADA_ALIASES;
+    }
+
+    const normalizedAliases = parsedAliases
+      .map(normalizeHeaderName)
+      .filter(Boolean);
+
+    const uniqueAliases = Array.from(new Set(normalizedAliases));
+    return uniqueAliases.length > 0 ? uniqueAliases : DEFAULT_FINALIDAD_DETALLADA_ALIASES;
+  } catch (error) {
+    Logger.log('No se pudieron obtener alias personalizados de finalidad detallada: ' + error.toString());
+    return DEFAULT_FINALIDAD_DETALLADA_ALIASES;
+  }
 }
 
 function getFinalidadDetalladaColumnIndex(sheet) {
